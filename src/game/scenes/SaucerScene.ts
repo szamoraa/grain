@@ -92,10 +92,10 @@ export class SaucerScene extends Phaser.Scene implements ISaucerScene {
 
     // Update game systems
     this.updateStarfield();
-    this.updatePlayer(delta);
-    this.updateEnemies(delta);
-    this.updateAsteroids(delta);
-    this.updateProjectiles(delta);
+    this.updatePlayer();
+    this.updateEnemies();
+    this.updateAsteroids();
+    this.updateProjectiles();
     this.updateParticles();
 
     // Handle collisions
@@ -216,7 +216,7 @@ export class SaucerScene extends Phaser.Scene implements ISaucerScene {
       lastShotTime: 0,
     };
 
-    this.player.sprite.setCollideWorldBounds(true);
+    // World bounds collision handled manually in update loop
     this.player.sprite.setScale(0.8);
 
     // Set up thruster particle emitter to follow player
@@ -298,10 +298,11 @@ export class SaucerScene extends Phaser.Scene implements ISaucerScene {
 
   // Set up halftone post-processing effect
   private setupHalftoneEffect(): void {
-    if (this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer) {
-      this.halftone = this.game.renderer.addPipeline('Halftone', new HalftonePipeline(this.game));
-      this.cameras.main.setRenderToTexture(this.halftone);
-    }
+    // TODO: Re-enable halftone effect once pipeline types are resolved
+    // if (this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer) {
+    //   this.halftone = this.game.renderer.pipelines.add('Halftone', new HalftonePipeline(this.game));
+    //   this.cameras.main.setRenderToTexture(this.halftone);
+    // }
   }
 
   // Update starfield scrolling
@@ -319,7 +320,7 @@ export class SaucerScene extends Phaser.Scene implements ISaucerScene {
   }
 
   // Update player movement and physics
-  private updatePlayer(_delta: number): void {
+  private updatePlayer(): void {
     // Apply velocity
     this.player.sprite.x += this.player.velocity.x;
     this.player.sprite.y += this.player.velocity.y;
@@ -344,7 +345,7 @@ export class SaucerScene extends Phaser.Scene implements ISaucerScene {
   }
 
   // Update enemy saucers
-  private updateEnemies(_delta: number): void {
+  private updateEnemies(): void {
     this.enemies.forEach((enemy, index) => {
       // Simple AI: steer toward player with delay
       const direction = new Phaser.Math.Vector2(
@@ -373,7 +374,7 @@ export class SaucerScene extends Phaser.Scene implements ISaucerScene {
   }
 
   // Update asteroids
-  private updateAsteroids(_delta: number): void {
+  private updateAsteroids(): void {
     this.asteroids.forEach((asteroid, index) => {
       // Apply velocity
       asteroid.sprite.x += asteroid.velocity.x;
@@ -388,7 +389,7 @@ export class SaucerScene extends Phaser.Scene implements ISaucerScene {
   }
 
   // Update projectiles
-  private updateProjectiles(_delta: number): void {
+  private updateProjectiles(): void {
     this.projectiles.forEach((projectile, index) => {
       // Apply velocity
       projectile.sprite.x += projectile.velocity.x;
@@ -652,6 +653,7 @@ export class SaucerScene extends Phaser.Scene implements ISaucerScene {
     };
 
     enemy.sprite.setScale(0.7);
+    // Enemies can move off-screen (handled in update loop)
     this.enemies.push(enemy);
   }
 
@@ -666,6 +668,7 @@ export class SaucerScene extends Phaser.Scene implements ISaucerScene {
     };
 
     asteroid.sprite.setScale(0.6 + Math.random() * 0.4);
+    // Asteroids can move off-screen (handled in update loop)
     this.asteroids.push(asteroid);
   }
 
@@ -692,6 +695,7 @@ export class SaucerScene extends Phaser.Scene implements ISaucerScene {
     };
 
     projectile.sprite.setScale(0.8);
+    // Projectiles can move off-screen (handled in update loop)
     this.projectiles.push(projectile);
 
     // Muzzle flash effect

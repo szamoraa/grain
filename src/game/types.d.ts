@@ -1,5 +1,14 @@
 // Game-related type definitions for Retro Saucer
 
+// Global type declarations for browser compatibility
+declare global {
+  interface Window {
+    webkitAudioContext?: typeof AudioContext;
+  }
+}
+
+export {};
+
 // Game state and entities
 export interface GameState {
   lives: number;

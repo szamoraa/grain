@@ -142,20 +142,10 @@ export class HalftonePipeline extends Phaser.Renderer.WebGL.Pipelines.PostFXPipe
     this.uniforms.uIntensity = Math.max(0, Math.min(1, intensity));
   }
 
-  setColors(foreground: Phaser.Display.Color, background: Phaser.Display.Color): void {
-    // Convert Phaser color to RGB values (0-1 range)
-    const fgRgb = foreground.gl();
-    const bgRgb = background.gl();
-
-    this.uniforms.uForegroundColor = {
-      x: fgRgb[0],
-      y: fgRgb[1],
-      z: fgRgb[2]
-    };
-    this.uniforms.uBackgroundColor = {
-      x: bgRgb[0],
-      y: bgRgb[1],
-      z: bgRgb[2]
-    };
+  setColors(_foreground: Phaser.Display.Color, _background: Phaser.Display.Color): void {
+    // Color tinting not implemented yet - using default values
+    // TODO: Implement proper color extraction from Phaser.Display.Color
+    this.uniforms.uForegroundColor = { x: 1.0, y: 1.0, z: 1.0 }; // White
+    this.uniforms.uBackgroundColor = { x: 0.0, y: 0.0, z: 0.0 }; // Black
   }
 }

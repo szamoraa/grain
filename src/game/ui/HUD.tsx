@@ -39,33 +39,37 @@ export default function HUD({ onBoost, onShoot }: HUDProps) {
       switch (gameEvent.type) {
         case 'update_hud':
           if (gameEvent.data) {
+            const data = gameEvent.data;
             setHudState(prev => ({
               ...prev,
-              lives: gameEvent.data.lives,
-              level: gameEvent.data.level,
-              enemyKills: gameEvent.data.enemyKills,
-              asteroidKills: gameEvent.data.asteroidKills,
-              gameOver: gameEvent.data.gameOver,
+              lives: data.lives ?? prev.lives,
+              level: data.level ?? prev.level,
+              enemyKills: data.enemyKills ?? prev.enemyKills,
+              asteroidKills: data.asteroidKills ?? prev.asteroidKills,
+              gameOver: data.gameOver ?? prev.gameOver,
             }));
           }
           break;
 
         case 'level_up':
           if (gameEvent.data) {
-            setHudState(prev => ({
-              ...prev,
-              level: gameEvent.data.level,
-              showLevelBanner: true,
-              levelBannerText: `LEVEL ${gameEvent.data.level}`,
-            }));
-
-            // Hide level banner after 3 seconds
-            setTimeout(() => {
+            const data = gameEvent.data;
+            if (data.level) {
               setHudState(prev => ({
                 ...prev,
-                showLevelBanner: false,
+                level: data.level!,
+                showLevelBanner: true,
+                levelBannerText: `LEVEL ${data.level!}`,
               }));
-            }, 3000);
+
+              // Hide level banner after 3 seconds
+              setTimeout(() => {
+                setHudState(prev => ({
+                  ...prev,
+                  showLevelBanner: false,
+                }));
+              }, 3000);
+            }
           }
           break;
 
