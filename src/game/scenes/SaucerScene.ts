@@ -1,39 +1,73 @@
+// TODO(santiago): re-enable halftone after art pass
+
 import Phaser from 'phaser';
-import {
-  GameState,
-  Player,
-  EnemySaucer,
-  Asteroid,
-  Projectile,
-  ParticleSystem,
-  GameConfig,
-  TouchControls,
-  SaucerScene as ISaucerScene,
-  GameEventData
-} from '../types';
-import { HalftonePipeline } from '../pipelines/HalftonePipeline';
 import { sfx } from '../Sfx';
 
-// Game configuration constants - tweak these for balancing
-const GAME_CONFIG: GameConfig = {
-  WIDTH: 360,
-  HEIGHT: 640,
-  SCROLL_SPEED_BASE: 2.0, // Base scroll speed
-  BOOST_MULT: 1.5, // Boost multiplier
-  PLAYER_ACCEL: 0.8, // Player acceleration
-  BULLET_COOLDOWN_MS: 167, // ~6 shots per second
-  INVULN_MS: 2000, // 2 seconds invulnerability
-  LEVEL_TIME_S: 45, // Level duration in seconds
-  KILLS_FOR_LEVEL: 15, // Kills needed to advance level
-};
+// Game tuning constants for Level 1
+const PLAYER_X = 140;             // Fixed X anchor for player
+const PLAYER_SPEED = 380;         // Vertical speed in px/s
+const LASER_COOLDOWN_MS = 140;    // Laser fire rate
+const LASER_SPEED = 900;          // Laser projectile speed
 
-// Main game scene
-export class SaucerScene extends Phaser.Scene implements ISaucerScene {
+const SPAWN_MIN_MS = 800;         // Minimum spawn delay
+const SPAWN_MAX_MS = 1100;        // Maximum spawn delay
+const ASTEROID_CHANCE = 0.7;      // Chance of spawning asteroid vs enemy
+
+const INVULN_MS = 1000;           // Invulnerability duration after hit
+const START_LIVES = 3;            // Starting lives
+
+const STAR_SLOW_SPEED = 24;       // Background star scroll speed
+const STAR_FAST_SPEED = 48;       // Foreground star scroll speed
+const STAR_DENSITY = 0.00012;     // Star density (kept subtle)
+
+const GAME_WIDTH = 960;
+const GAME_HEIGHT = 540;
+
+// Simple game state
+interface GameState {
+  lives: number;
+  enemyKills: number;
+  asteroidKills: number;
+  gameOver: boolean;
+  invulnerable: boolean;
+  invulnerabilityTime: number;
+}
+
+// Simple player
+interface Player {
+  sprite: Phaser.GameObjects.Sprite;
+  y: number;
+}
+
+// Simple enemy
+interface Enemy {
+  sprite: Phaser.GameObjects.Sprite;
+  x: number;
+  y: number;
+  speed: number;
+  wobbleOffset: number;
+}
+
+// Simple asteroid
+interface Asteroid {
+  sprite: Phaser.GameObjects.Sprite;
+  x: number;
+  y: number;
+  speed: number;
+}
+
+// Simple projectile
+interface Projectile {
+  sprite: Phaser.GameObjects.Sprite;
+  x: number;
+  y: number;
+}
+
+// Main game scene - simplified Level 1
+export class SaucerScene extends Phaser.Scene {
   // Game state
   gameState: GameState = {
-    lives: 3,
-    level: 1,
-    score: 0,
+    lives: START_LIVES,
     enemyKills: 0,
     asteroidKills: 0,
     gameOver: false,
@@ -43,29 +77,22 @@ export class SaucerScene extends Phaser.Scene implements ISaucerScene {
 
   // Game entities
   player!: Player;
-  enemies: EnemySaucer[] = [];
+  enemies: Enemy[] = [];
   asteroids: Asteroid[] = [];
   projectiles: Projectile[] = [];
 
-  // Visual elements
-  starfield: Phaser.GameObjects.TileSprite[] = [];
-  particles: ParticleSystem[] = [];
+  // Background
+  starfieldSlow!: Phaser.GameObjects.TileSprite;
+  starfieldFast!: Phaser.GameObjects.TileSprite;
 
-  // Effects and controls
-  halftone?: Phaser.Renderer.WebGL.Pipelines.PostFXPipeline;
-  touchControls: TouchControls = {
-    isDragging: false,
-    dragStartY: 0,
-    currentY: 0,
-    isBoosting: false,
-    lastShootTime: 0,
-  };
+  // Input
+  cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
+  wasdKeys!: { [key: string]: Phaser.Input.Keyboard.Key };
+  spaceKey!: Phaser.Input.Keyboard.Key;
 
-  // Timers and counters
+  // Timers
   spawnerTimer?: Phaser.Time.TimerEvent;
-  levelStartTime: number = 0;
-  levelBannerTimer?: Phaser.Time.TimerEvent;
-  invulnFlashTimer?: Phaser.Time.TimerEvent;
+  lastShotTime: number = 0;
 
   constructor() {
     super({ key: 'SaucerScene' });
@@ -73,15 +100,12 @@ export class SaucerScene extends Phaser.Scene implements ISaucerScene {
 
   create(): void {
     // Initialize game systems
-    this.initializeStarfield();
-    this.initializeParticles();
+    this.initializeBackground();
     this.initializePlayer();
     this.setupInput();
-    this.setupHalftoneEffect();
 
-    // Start game loop
+    // Start spawning enemies/asteroids
     this.startSpawner();
-    this.levelStartTime = this.time.now;
 
     // Send initial HUD update
     this.updateHUD();
@@ -90,325 +114,143 @@ export class SaucerScene extends Phaser.Scene implements ISaucerScene {
   update(time: number, delta: number): void {
     if (this.gameState.gameOver) return;
 
-    // Update game systems
-    this.updateStarfield();
-    this.updatePlayer();
-    this.updateEnemies();
-    this.updateAsteroids();
-    this.updateProjectiles();
-    this.updateParticles();
+    // Update background
+    this.updateBackground();
+
+    // Update player
+    this.updatePlayer(delta);
+
+    // Update enemies and asteroids
+    this.updateEnemies(delta);
+    this.updateAsteroids(delta);
+    this.updateProjectiles(delta);
 
     // Handle collisions
     this.handleCollisions();
 
-    // Update game state
+    // Update invulnerability
     this.updateInvulnerability(delta);
-    this.checkLevelProgression(time);
   }
 
-  // Initialize starfield background
-  private initializeStarfield(): void {
-    // Create three layers of starfield for parallax effect
-    this.starfield = [
-      // Background layer (slow moving, small stars)
-      this.add.tileSprite(0, 0, GAME_CONFIG.WIDTH, GAME_CONFIG.HEIGHT, 'starfield-bg')
-        .setOrigin(0, 0)
-        .setTint(0xffffff)
-        .setAlpha(0.8),
+  // Initialize simple background
+  private initializeBackground(): void {
+    // Create two layers of starfield
+    this.starfieldSlow = this.add.tileSprite(0, 0, GAME_WIDTH, GAME_HEIGHT, 'starfield-slow')
+      .setOrigin(0, 0)
+      .setTint(0xffffff)
+      .setAlpha(0.6);
 
-      // Mid layer (medium speed, medium stars)
-      this.add.tileSprite(0, 0, GAME_CONFIG.WIDTH, GAME_CONFIG.HEIGHT, 'starfield-mid')
-        .setOrigin(0, 0)
-        .setTint(0xffffff)
-        .setAlpha(0.6),
-
-      // Foreground layer (fast moving, large stars)
-      this.add.tileSprite(0, 0, GAME_CONFIG.WIDTH, GAME_CONFIG.HEIGHT, 'starfield-fg')
-        .setOrigin(0, 0)
-        .setTint(0xffffff)
-        .setAlpha(0.4),
-    ];
-
-    // Generate starfield textures procedurally
-    this.generateStarfieldTextures();
+    this.starfieldFast = this.add.tileSprite(0, 0, GAME_WIDTH, GAME_HEIGHT, 'starfield-fast')
+      .setOrigin(0, 0)
+      .setTint(0xffffff)
+      .setAlpha(0.4);
   }
 
-  private generateStarfieldTextures(): void {
-    // Background stars
-    const bgGraphics = this.add.graphics();
-    for (let i = 0; i < 100; i++) {
-      const x = Math.random() * GAME_CONFIG.WIDTH;
-      const y = Math.random() * GAME_CONFIG.HEIGHT;
-      const size = Math.random() * 1.5 + 0.5;
-      bgGraphics.fillStyle(0xffffff, Math.random() * 0.8 + 0.2);
-      bgGraphics.fillCircle(x, y, size);
-    }
-    bgGraphics.generateTexture('starfield-bg', GAME_CONFIG.WIDTH, GAME_CONFIG.HEIGHT);
-    bgGraphics.destroy();
-
-    // Mid layer stars
-    const midGraphics = this.add.graphics();
-    for (let i = 0; i < 50; i++) {
-      const x = Math.random() * GAME_CONFIG.WIDTH;
-      const y = Math.random() * GAME_CONFIG.HEIGHT;
-      const size = Math.random() * 2 + 1;
-      midGraphics.fillStyle(0xffffff, Math.random() * 0.6 + 0.4);
-      midGraphics.fillCircle(x, y, size);
-    }
-    midGraphics.generateTexture('starfield-mid', GAME_CONFIG.WIDTH, GAME_CONFIG.HEIGHT);
-    midGraphics.destroy();
-
-    // Foreground stars
-    const fgGraphics = this.add.graphics();
-    for (let i = 0; i < 25; i++) {
-      const x = Math.random() * GAME_CONFIG.WIDTH;
-      const y = Math.random() * GAME_CONFIG.HEIGHT;
-      const size = Math.random() * 3 + 1.5;
-      fgGraphics.fillStyle(0xffffff, Math.random() * 0.9 + 0.1);
-      fgGraphics.fillCircle(x, y, size);
-    }
-    fgGraphics.generateTexture('starfield-fg', GAME_CONFIG.WIDTH, GAME_CONFIG.HEIGHT);
-    fgGraphics.destroy();
-  }
-
-  // Initialize particle systems
-  private initializeParticles(): void {
-    // Thruster particles
-    const thrusterEmitter = this.add.particles(0, 0, 'thruster-particle', {
-      speed: { min: 50, max: 100 },
-      scale: { start: 1, end: 0 },
-      lifespan: 300,
-      alpha: { start: 1, end: 0 },
-      quantity: 2,
-    });
-
-    // Explosion particles
-    const explosionEmitter = this.add.particles(0, 0, 'explosion-particle', {
-      speed: { min: 20, max: 100 },
-      scale: { start: 1, end: 0 },
-      lifespan: 500,
-      alpha: { start: 1, end: 0 },
-      quantity: 8,
-    });
-
-    // Muzzle flash
-    const muzzleEmitter = this.add.particles(0, 0, 'muzzle-flash', {
-      speed: { min: 10, max: 30 },
-      scale: { start: 1, end: 0 },
-      lifespan: 100,
-      alpha: { start: 1, end: 0 },
-      quantity: 3,
-    });
-
-    this.particles = [
-      { emitter: thrusterEmitter, texture: 'thruster-particle' },
-      { emitter: explosionEmitter, texture: 'explosion-particle' },
-      { emitter: muzzleEmitter, texture: 'muzzle-flash' },
-    ];
-  }
-
-  // Initialize player entity
+  // Initialize player at fixed position
   private initializePlayer(): void {
     this.player = {
-      sprite: this.physics.add.sprite(GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT - 100, 'saucer'),
-      velocity: new Phaser.Math.Vector2(0, 0),
-      isBoosting: false,
-      lastShotTime: 0,
+      sprite: this.physics.add.sprite(PLAYER_X, GAME_HEIGHT / 2, 'saucer'),
+      y: GAME_HEIGHT / 2,
     };
 
-    // World bounds collision handled manually in update loop
     this.player.sprite.setScale(0.8);
-
-    // Set up thruster particle emitter to follow player
-    this.particles[0].emitter.startFollow(this.player.sprite, -25, 0);
   }
 
-  // Set up input handling
+  // Set up desktop input only
   private setupInput(): void {
     // Keyboard input
-    this.input.keyboard!.on('keydown', (event: KeyboardEvent) => {
-      switch (event.code) {
-        case 'ArrowUp':
-        case 'KeyW':
-          this.player.velocity.y = -GAME_CONFIG.PLAYER_ACCEL;
-          break;
-        case 'ArrowDown':
-        case 'KeyS':
-          this.player.velocity.y = GAME_CONFIG.PLAYER_ACCEL;
-          break;
-        case 'Space':
-          this.shoot();
-          break;
-        case 'ShiftLeft':
-        case 'ShiftRight':
-        case 'KeyX':
-          this.startBoost();
-          break;
-      }
-    });
-
-    this.input.keyboard!.on('keyup', (event: KeyboardEvent) => {
-      switch (event.code) {
-        case 'ArrowUp':
-        case 'ArrowDown':
-        case 'KeyW':
-        case 'KeyS':
-          this.player.velocity.y = 0;
-          break;
-        case 'ShiftLeft':
-        case 'ShiftRight':
-        case 'KeyX':
-          this.stopBoost();
-          break;
-      }
-    });
-
-    // Touch input
-    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (pointer.x < GAME_CONFIG.WIDTH / 2) {
-        // Left side - start dragging for movement
-        this.touchControls.isDragging = true;
-        this.touchControls.dragStartY = pointer.y;
-        this.touchControls.currentY = pointer.y;
-      } else {
-        // Right side - shoot or boost
-        if (this.touchControls.isBoosting) {
-          this.stopBoost();
-        } else {
-          this.shoot();
-        }
-      }
-    });
-
-    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
-      if (this.touchControls.isDragging) {
-        this.touchControls.currentY = pointer.y;
-        const deltaY = this.touchControls.currentY - this.touchControls.dragStartY;
-        this.player.velocity.y = Phaser.Math.Clamp(deltaY * 0.01, -GAME_CONFIG.PLAYER_ACCEL, GAME_CONFIG.PLAYER_ACCEL);
-      }
-    });
-
-    this.input.on('pointerup', () => {
-      if (this.touchControls.isDragging) {
-        this.touchControls.isDragging = false;
-        this.player.velocity.y = 0;
-      }
-    });
+    this.cursors = this.input.keyboard!.createCursorKeys();
+    this.wasdKeys = this.input.keyboard!.addKeys('W,S,A,D') as { [key: string]: Phaser.Input.Keyboard.Key };
+    this.spaceKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
   }
 
-  // Set up halftone post-processing effect
-  private setupHalftoneEffect(): void {
-    // TODO: Re-enable halftone effect once pipeline types are resolved
-    // if (this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer) {
-    //   this.halftone = this.game.renderer.pipelines.add('Halftone', new HalftonePipeline(this.game));
-    //   this.cameras.main.setRenderToTexture(this.halftone);
-    // }
+  // Update background scrolling
+  private updateBackground(): void {
+    this.starfieldSlow.tilePositionX += STAR_SLOW_SPEED * (1/60); // Assuming 60fps
+    this.starfieldFast.tilePositionX += STAR_FAST_SPEED * (1/60);
   }
 
-  // Update starfield scrolling
-  private updateStarfield(): void {
-    const scrollSpeed = GAME_CONFIG.SCROLL_SPEED_BASE * (1 + (this.gameState.level - 1) * 0.2);
+  // Update player position (vertical only)
+  private updatePlayer(delta: number): void {
+    const dt = delta / 1000; // Convert to seconds
 
-    // Different scroll speeds for parallax effect
-    this.starfield[0].tilePositionX += scrollSpeed * 0.5; // Background
-    this.starfield[1].tilePositionX += scrollSpeed * 0.8; // Mid
-    this.starfield[2].tilePositionX += scrollSpeed * 1.2; // Foreground
+    // Handle input
+    let moveDirection = 0;
+    if (this.cursors.up.isDown || this.wasdKeys.W.isDown) {
+      moveDirection = -1;
+    } else if (this.cursors.down.isDown || this.wasdKeys.S.isDown) {
+      moveDirection = 1;
+    }
 
-    // Add slight vertical drift to mid and foreground layers
-    this.starfield[1].tilePositionY += Math.sin(this.time.now * 0.001) * 0.1;
-    this.starfield[2].tilePositionY += Math.sin(this.time.now * 0.002) * 0.2;
-  }
+    // Update player position
+    this.player.y += moveDirection * PLAYER_SPEED * dt;
+    this.player.y = Phaser.Math.Clamp(this.player.y, 30, GAME_HEIGHT - 30);
+    this.player.sprite.y = this.player.y;
 
-  // Update player movement and physics
-  private updatePlayer(): void {
-    // Apply velocity
-    this.player.sprite.x += this.player.velocity.x;
-    this.player.sprite.y += this.player.velocity.y;
+    // Handle shooting
+    if (this.spaceKey.isDown && this.time.now - this.lastShotTime > LASER_COOLDOWN_MS) {
+      this.shoot();
+    }
 
-    // Apply auto-forward movement
-    const forwardSpeed = GAME_CONFIG.SCROLL_SPEED_BASE * (this.player.isBoosting ? GAME_CONFIG.BOOST_MULT : 1);
-    this.player.sprite.x += forwardSpeed;
-
-    // Apply drag to smooth movement
-    this.player.velocity.x *= 0.95;
-    this.player.velocity.y *= 0.95;
-
-    // Update thruster particles
-    this.particles[0].emitter.setVisible(this.player.isBoosting);
-
-    // Handle invulnerability flashing
+    // Invulnerability flashing
     if (this.gameState.invulnerable) {
-      this.player.sprite.setAlpha(Math.sin(this.time.now * 0.02) > 0 ? 0.3 : 1);
+      this.player.sprite.setAlpha(Math.sin(this.time.now * 0.01) > 0 ? 0.3 : 1);
     } else {
       this.player.sprite.setAlpha(1);
     }
   }
 
-  // Update enemy saucers
-  private updateEnemies(): void {
+  // Update enemies (simple left movement with wobble)
+  private updateEnemies(delta: number): void {
+    const dt = delta / 1000;
+
     this.enemies.forEach((enemy, index) => {
-      // Simple AI: steer toward player with delay
-      const direction = new Phaser.Math.Vector2(
-        this.player.sprite.x - enemy.sprite.x,
-        this.player.sprite.y - enemy.sprite.y
-      ).normalize();
+      enemy.x -= enemy.speed * dt;
+      enemy.y += Math.sin(this.time.now * 0.003 + enemy.wobbleOffset) * 0.5;
+      enemy.sprite.x = enemy.x;
+      enemy.sprite.y = enemy.y;
 
-      enemy.velocity.x += direction.x * 0.02;
-      enemy.velocity.y += direction.y * 0.02;
-
-      // Apply velocity
-      enemy.sprite.x += enemy.velocity.x;
-      enemy.sprite.y += enemy.velocity.y;
-
-      // Apply drag
-      enemy.velocity.x *= 0.98;
-      enemy.velocity.y *= 0.98;
-
-      // Remove enemies that go off-screen
-      if (enemy.sprite.x < -50 || enemy.sprite.x > GAME_CONFIG.WIDTH + 50 ||
-          enemy.sprite.y < -50 || enemy.sprite.y > GAME_CONFIG.HEIGHT + 50) {
+      // Remove if off-screen
+      if (enemy.x < -50) {
         enemy.sprite.destroy();
         this.enemies.splice(index, 1);
       }
     });
   }
 
-  // Update asteroids
-  private updateAsteroids(): void {
-    this.asteroids.forEach((asteroid, index) => {
-      // Apply velocity
-      asteroid.sprite.x += asteroid.velocity.x;
-      asteroid.sprite.y += asteroid.velocity.y;
+  // Update asteroids (simple left movement)
+  private updateAsteroids(delta: number): void {
+    const dt = delta / 1000;
 
-      // Remove asteroids that go off-screen
-      if (asteroid.sprite.x < -50) {
+    this.asteroids.forEach((asteroid, index) => {
+      asteroid.x -= asteroid.speed * dt;
+      asteroid.sprite.x = asteroid.x;
+
+      // Remove if off-screen
+      if (asteroid.x < -50) {
         asteroid.sprite.destroy();
         this.asteroids.splice(index, 1);
       }
     });
   }
 
-  // Update projectiles
-  private updateProjectiles(): void {
-    this.projectiles.forEach((projectile, index) => {
-      // Apply velocity
-      projectile.sprite.x += projectile.velocity.x;
-      projectile.sprite.y += projectile.velocity.y;
+  // Update projectiles (move right)
+  private updateProjectiles(delta: number): void {
+    const dt = delta / 1000;
 
-      // Remove projectiles that go off-screen
-      if (projectile.sprite.x > GAME_CONFIG.WIDTH + 50) {
+    this.projectiles.forEach((projectile, index) => {
+      projectile.x += LASER_SPEED * dt;
+      projectile.sprite.x = projectile.x;
+
+      // Remove if off-screen
+      if (projectile.x > GAME_WIDTH + 50) {
         projectile.sprite.destroy();
         this.projectiles.splice(index, 1);
       }
     });
   }
 
-  // Update particle systems
-  private updateParticles(): void {
-    // Particles are automatically updated by Phaser
-  }
-
-  // Handle all collision detection
+  // Handle collisions
   private handleCollisions(): void {
     // Projectiles vs Enemies
     this.projectiles.forEach((projectile, pIndex) => {
@@ -426,11 +268,9 @@ export class SaucerScene extends Phaser.Scene implements ISaucerScene {
           projectile.sprite.destroy();
           this.projectiles.splice(pIndex, 1);
 
-          // Update game state
+          // Update stats
           this.gameState.enemyKills++;
-          this.gameState.score += 100;
-          sfx.play('explosion');
-
+          sfx.boom();
           this.updateHUD();
         }
       });
@@ -452,17 +292,15 @@ export class SaucerScene extends Phaser.Scene implements ISaucerScene {
           projectile.sprite.destroy();
           this.projectiles.splice(pIndex, 1);
 
-          // Update game state
+          // Update stats
           this.gameState.asteroidKills++;
-          this.gameState.score += 50;
-          sfx.play('hit');
-
+          sfx.boom();
           this.updateHUD();
         }
       });
     });
 
-    // Player vs Enemies/Asteroids (only if not invulnerable)
+    // Player vs Enemies/Asteroids
     if (!this.gameState.invulnerable) {
       [...this.enemies, ...this.asteroids].forEach((entity) => {
         if (Phaser.Geom.Intersects.RectangleToRectangle(
@@ -479,12 +317,9 @@ export class SaucerScene extends Phaser.Scene implements ISaucerScene {
   private playerHit(): void {
     this.gameState.lives--;
     this.gameState.invulnerable = true;
-    this.gameState.invulnerabilityTime = GAME_CONFIG.INVULN_MS;
+    this.gameState.invulnerabilityTime = INVULN_MS;
 
-    // Screen shake effect
-    this.cameras.main.shake(200, 0.01);
-
-    sfx.play('hit');
+    sfx.boom();
     this.updateHUD();
 
     if (this.gameState.lives <= 0) {
@@ -492,81 +327,33 @@ export class SaucerScene extends Phaser.Scene implements ISaucerScene {
     }
   }
 
-  // Handle game over
+  // Game over
   private gameOver(): void {
     this.gameState.gameOver = true;
 
-    // Stop all timers
+    // Stop spawner
     if (this.spawnerTimer) {
       this.spawnerTimer.destroy();
     }
 
-    // Create game over overlay
-    const overlay = this.add.graphics();
-    overlay.fillStyle(0x000000, 0.8);
-    overlay.fillRect(0, 0, GAME_CONFIG.WIDTH, GAME_CONFIG.HEIGHT);
-
-    // Game over text
-    const gameOverText = this.add.text(GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 - 100,
-      'GAME OVER', { fontSize: '32px', color: '#ffffff' });
+    // Show game over text
+    const gameOverText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'GAME OVER', {
+      fontSize: '48px',
+      color: '#ff0000'
+    });
     gameOverText.setOrigin(0.5);
 
-    // Stats
-    const statsText = this.add.text(GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 - 50,
-      `Ships: ${this.gameState.enemyKills}\nRocks: ${this.gameState.asteroidKills}\nHighest Level: ${this.gameState.level}`,
-      { fontSize: '18px', color: '#ffffff', align: 'center' });
-    statsText.setOrigin(0.5);
+    const restartText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 60, 'Press R to Restart', {
+      fontSize: '24px',
+      color: '#ffffff'
+    });
+    restartText.setOrigin(0.5);
 
-    // Restart button
-    const restartButton = this.add.text(GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 + 50,
-      'RESTART', { fontSize: '24px', color: '#00ff00' });
-    restartButton.setOrigin(0.5);
-    restartButton.setInteractive();
-    restartButton.on('pointerdown', () => this.restartGame());
-
-    // Back to menu button
-    const backButton = this.add.text(GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2 + 100,
-      'BACK TO MENU', { fontSize: '20px', color: '#ffffff' });
-    backButton.setOrigin(0.5);
-    backButton.setInteractive();
-    backButton.on('pointerdown', () => window.location.href = '/');
-
-    // Send game over event to React HUD
-    const event: GameEventData = { type: 'game_over' };
-    window.dispatchEvent(new CustomEvent('gameEvent', { detail: event }));
-  }
-
-  // Restart the game
-  private restartGame(): void {
-    // Reset game state
-    this.gameState = {
-      lives: 3,
-      level: 1,
-      score: 0,
-      enemyKills: 0,
-      asteroidKills: 0,
-      gameOver: false,
-      invulnerable: false,
-      invulnerabilityTime: 0,
-    };
-
-    // Destroy all entities
-    this.enemies.forEach(e => e.sprite.destroy());
-    this.asteroids.forEach(a => a.sprite.destroy());
-    this.projectiles.forEach(p => p.sprite.destroy());
-
-    this.enemies = [];
-    this.asteroids = [];
-    this.projectiles = [];
-
-    // Reset player position
-    this.player.sprite.setPosition(GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT - 100);
-
-    // Restart systems
-    this.startSpawner();
-    this.levelStartTime = this.time.now;
-
-    this.updateHUD();
+    // Add restart key
+    const restartKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.R);
+    restartKey.on('down', () => {
+      this.scene.restart();
+    });
   }
 
   // Update invulnerability timer
@@ -579,48 +366,10 @@ export class SaucerScene extends Phaser.Scene implements ISaucerScene {
     }
   }
 
-  // Check for level progression
-  private checkLevelProgression(time: number): void {
-    const timeSinceLevelStart = (time - this.levelStartTime) / 1000;
-    const totalKills = this.gameState.enemyKills + this.gameState.asteroidKills;
-
-    if (timeSinceLevelStart >= GAME_CONFIG.LEVEL_TIME_S ||
-        totalKills >= this.gameState.level * GAME_CONFIG.KILLS_FOR_LEVEL) {
-      this.advanceLevel();
-    }
-  }
-
-  // Advance to next level
-  private advanceLevel(): void {
-    this.gameState.level++;
-
-    // Show level banner
-    const banner = this.add.text(GAME_CONFIG.WIDTH / 2, GAME_CONFIG.HEIGHT / 2,
-      `LEVEL ${this.gameState.level}`, { fontSize: '48px', color: '#00ff00' });
-    banner.setOrigin(0.5);
-
-    // Fade out banner after 2 seconds
-    this.tweens.add({
-      targets: banner,
-      alpha: 0,
-      duration: 2000,
-      onComplete: () => banner.destroy()
-    });
-
-    sfx.play('levelup');
-    this.levelStartTime = this.time.now;
-
-    // Send level up event to React HUD
-    const event: GameEventData = { type: 'level_up', data: { level: this.gameState.level } };
-    window.dispatchEvent(new CustomEvent('gameEvent', { detail: event }));
-
-    this.updateHUD();
-  }
-
-  // Start enemy/asteroid spawner
+  // Start spawning enemies/asteroids
   private startSpawner(): void {
     this.spawnerTimer = this.time.addEvent({
-      delay: Phaser.Math.Between(500, 900),
+      delay: Phaser.Math.Between(SPAWN_MIN_MS, SPAWN_MAX_MS),
       callback: this.spawnEntity,
       callbackScope: this,
       loop: true
@@ -629,31 +378,27 @@ export class SaucerScene extends Phaser.Scene implements ISaucerScene {
 
   // Spawn random entity
   private spawnEntity(): void {
-    const spawnX = GAME_CONFIG.WIDTH + 50;
-    const spawnY = Phaser.Math.Between(50, GAME_CONFIG.HEIGHT - 50);
+    const spawnX = GAME_WIDTH + 50;
+    const spawnY = Phaser.Math.Between(50, GAME_HEIGHT - 50);
 
-    // Determine what to spawn based on level
-    const enemyChance = Math.min(0.4 + (this.gameState.level - 1) * 0.1, 0.8);
-    const isEnemy = Math.random() < enemyChance;
-
-    if (isEnemy) {
-      this.spawnEnemy(spawnX, spawnY);
-    } else {
+    if (Math.random() < ASTEROID_CHANCE) {
       this.spawnAsteroid(spawnX, spawnY);
+    } else {
+      this.spawnEnemy(spawnX, spawnY);
     }
   }
 
-  // Spawn enemy saucer
+  // Spawn enemy
   private spawnEnemy(x: number, y: number): void {
-    const enemy: EnemySaucer = {
+    const enemy: Enemy = {
       sprite: this.physics.add.sprite(x, y, 'enemy-saucer'),
-      velocity: new Phaser.Math.Vector2(-GAME_CONFIG.SCROLL_SPEED_BASE * 0.5, 0),
-      targetPosition: new Phaser.Math.Vector2(this.player.sprite.x, this.player.sprite.y),
-      steeringDelay: Phaser.Math.Between(500, 1500),
+      x: x,
+      y: y,
+      speed: Phaser.Math.Between(80, 120),
+      wobbleOffset: Math.random() * Math.PI * 2,
     };
 
     enemy.sprite.setScale(0.7);
-    // Enemies can move off-screen (handled in update loop)
     this.enemies.push(enemy);
   }
 
@@ -661,73 +406,66 @@ export class SaucerScene extends Phaser.Scene implements ISaucerScene {
   private spawnAsteroid(x: number, y: number): void {
     const asteroid: Asteroid = {
       sprite: this.physics.add.sprite(x, y, 'asteroid'),
-      velocity: new Phaser.Math.Vector2(
-        -GAME_CONFIG.SCROLL_SPEED_BASE - Math.random() * 2,
-        (Math.random() - 0.5) * 1
-      ),
+      x: x,
+      y: y,
+      speed: Phaser.Math.Between(60, 100),
     };
 
     asteroid.sprite.setScale(0.6 + Math.random() * 0.4);
-    // Asteroids can move off-screen (handled in update loop)
     this.asteroids.push(asteroid);
   }
 
   // Create explosion effect
   private createExplosion(x: number, y: number): void {
-    this.particles[1].emitter.explode(8, x, y);
+    // Simple explosion particles
+    for (let i = 0; i < 8; i++) {
+      const particle = this.add.sprite(x, y, 'explosion-particle');
+      const angle = (i / 8) * Math.PI * 2;
+      const speed = Phaser.Math.Between(50, 150);
+
+      this.tweens.add({
+        targets: particle,
+        x: x + Math.cos(angle) * speed,
+        y: y + Math.sin(angle) * speed,
+        alpha: 0,
+        scale: 0,
+        duration: 500,
+        onComplete: () => particle.destroy()
+      });
+    }
   }
 
-  // Shoot projectile
+  // Shoot laser
   private shoot(): void {
-    const now = this.time.now;
-    if (now - this.player.lastShotTime < GAME_CONFIG.BULLET_COOLDOWN_MS) return;
-
-    this.player.lastShotTime = now;
+    this.lastShotTime = this.time.now;
 
     const projectile: Projectile = {
-      sprite: this.physics.add.sprite(
-        this.player.sprite.x + 30,
-        this.player.sprite.y,
-        'projectile'
-      ),
-      velocity: new Phaser.Math.Vector2(8, 0),
-      damage: 1,
+      sprite: this.physics.add.sprite(PLAYER_X + 30, this.player.y, 'projectile'),
+      x: PLAYER_X + 30,
+      y: this.player.y,
     };
 
     projectile.sprite.setScale(0.8);
-    // Projectiles can move off-screen (handled in update loop)
     this.projectiles.push(projectile);
 
-    // Muzzle flash effect
-    this.particles[2].emitter.explode(3, this.player.sprite.x + 30, this.player.sprite.y);
-
-    sfx.play('laser');
-  }
-
-  // Start boost
-  private startBoost(): void {
-    this.player.isBoosting = true;
-    this.touchControls.isBoosting = true;
-  }
-
-  // Stop boost
-  private stopBoost(): void {
-    this.player.isBoosting = false;
-    this.touchControls.isBoosting = false;
+    sfx.laser();
   }
 
   // Update HUD via custom event
   private updateHUD(): void {
-    const event: GameEventData = {
-      type: 'update_hud',
-      data: {
-        lives: this.gameState.lives,
-        level: this.gameState.level,
-        enemyKills: this.gameState.enemyKills,
-        asteroidKills: this.gameState.asteroidKills,
-        gameOver: this.gameState.gameOver,
+    const event: CustomEvent = new CustomEvent('gameEvent', {
+      detail: {
+        type: 'update_hud',
+        data: {
+          lives: this.gameState.lives,
+          level: 1, // Always Level 1
+          enemyKills: this.gameState.enemyKills,
+          asteroidKills: this.gameState.asteroidKills,
+          gameOver: this.gameState.gameOver,
+        }
       }
-    };
-    window.dispatchEvent(new CustomEvent('gameEvent', { detail: event }));
+    });
+    window.dispatchEvent(event);
   }
+
 }

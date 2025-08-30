@@ -7,8 +7,8 @@ export const createPhaserConfig = (parentElement: string): Phaser.Types.Core.Gam
   return {
     type: Phaser.AUTO, // Use WebGL if available, fallback to Canvas
     parent: parentElement,
-    width: 360, // Internal game resolution
-    height: 640,
+    width: 960, // Internal game resolution - widescreen 16:9
+    height: 540,
     scale: {
       mode: Phaser.Scale.FIT, // Fit to container while maintaining aspect ratio
       autoCenter: Phaser.Scale.CENTER_BOTH, // Center the game canvas
@@ -23,7 +23,7 @@ export const createPhaserConfig = (parentElement: string): Phaser.Types.Core.Gam
     },
     scene: [BootScene, SaucerScene], // Scene loading order
     render: {
-      pixelArt: false, // We want smooth graphics for the halftone effect
+      pixelArt: false, // Smooth graphics
       antialias: true,
       roundPixels: false,
     },

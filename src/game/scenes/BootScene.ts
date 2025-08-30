@@ -38,6 +38,9 @@ export class BootScene extends Phaser.Scene {
 
     // Create particle textures
     this.createParticleTextures();
+
+    // Create starfield textures
+    this.createStarfieldTextures();
   }
 
   private createSaucerTexture(): void {
@@ -63,11 +66,11 @@ export class BootScene extends Phaser.Scene {
   private createEnemySaucerTexture(): void {
     const graphics = this.add.graphics();
 
-    // Enemy saucer (darker, more angular)
+    // Simple enemy saucer (darker, more angular)
     graphics.fillStyle(0x8b0000); // Dark red
     graphics.fillEllipse(20, 12, 35, 18);
 
-    // Angular dome
+    // Simple dome
     graphics.fillStyle(0xb22222); // Firebrick
     graphics.fillEllipse(20, 8, 25, 12);
 
@@ -79,11 +82,11 @@ export class BootScene extends Phaser.Scene {
   private createAsteroidTexture(): void {
     const graphics = this.add.graphics();
 
-    // Irregular asteroid shape
+    // Simple asteroid shape
     graphics.fillStyle(0x696969); // Dim gray
     graphics.fillEllipse(15, 15, 25, 20);
 
-    // Add some irregularity with smaller circles
+    // Add some irregularity
     graphics.fillStyle(0x808080); // Gray
     graphics.fillCircle(12, 18, 8);
     graphics.fillCircle(22, 12, 6);
@@ -100,7 +103,7 @@ export class BootScene extends Phaser.Scene {
     graphics.fillStyle(0x00bfff); // Deep sky blue
     graphics.fillRect(0, 2, 8, 4);
 
-    // Add a bright tip
+    // Bright tip
     graphics.fillStyle(0x87ceeb); // Sky blue
     graphics.fillRect(6, 1, 2, 6);
 
@@ -130,5 +133,33 @@ export class BootScene extends Phaser.Scene {
     muzzleGraphics.fillCircle(2, 2, 2);
     muzzleGraphics.generateTexture('muzzle-flash', 4, 4);
     muzzleGraphics.destroy();
+  }
+
+  private createStarfieldTextures(): void {
+    // Slow stars (background layer)
+    const slowGraphics = this.add.graphics();
+    for (let i = 0; i < 50; i++) {
+      const x = Math.random() * 960;
+      const y = Math.random() * 540;
+      const size = Math.random() * 1.5 + 0.5;
+      const alpha = Math.random() * 0.8 + 0.2;
+      slowGraphics.fillStyle(0xffffff, alpha);
+      slowGraphics.fillCircle(x, y, size);
+    }
+    slowGraphics.generateTexture('starfield-slow', 960, 540);
+    slowGraphics.destroy();
+
+    // Fast stars (foreground layer)
+    const fastGraphics = this.add.graphics();
+    for (let i = 0; i < 30; i++) {
+      const x = Math.random() * 960;
+      const y = Math.random() * 540;
+      const size = Math.random() * 2 + 1;
+      const alpha = Math.random() * 0.6 + 0.4;
+      fastGraphics.fillStyle(0xffffff, alpha);
+      fastGraphics.fillCircle(x, y, size);
+    }
+    fastGraphics.generateTexture('starfield-fast', 960, 540);
+    fastGraphics.destroy();
   }
 }

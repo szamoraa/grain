@@ -28,19 +28,7 @@ export default function SaucerGamePage() {
     };
   }, []);
 
-  const handleBoost = () => {
-    // Send boost start event to Phaser scene
-    window.dispatchEvent(new CustomEvent('gameEvent', {
-      detail: { type: 'boost_start' }
-    }));
-  };
 
-  const handleShoot = () => {
-    // Send shoot event to Phaser scene
-    window.dispatchEvent(new CustomEvent('gameEvent', {
-      detail: { type: 'shoot' }
-    }));
-  };
 
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4">
@@ -63,39 +51,29 @@ export default function SaucerGamePage() {
       {/* Game Container */}
       <div
         ref={gameContainerRef}
-        className="relative w-full max-w-md mx-auto"
-        style={{ aspectRatio: '9/16' }}
+        className="relative w-full max-w-4xl mx-auto"
+        style={{ aspectRatio: '16/9' }}
       >
         {/* Game Canvas */}
         <GameCanvas
           gameKey="saucer"
-          width={360}
-          height={640}
+          width={960}
+          height={540}
           className="w-full h-full"
         />
 
         {/* HUD Overlay */}
-        <HUD
-          onBoost={handleBoost}
-          onShoot={handleShoot}
-        />
+        <HUD />
       </div>
 
       {/* Instructions */}
       <div className="mt-6 max-w-md text-center text-gray-300 text-sm">
-        <h3 className="font-bold text-white mb-2">Controls:</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <strong className="text-white">Desktop:</strong>
-            <br />↑↓ or W/S: Move
-            <br />Space: Shoot
-            <br />Shift/X: Boost
-          </div>
-          <div>
-            <strong className="text-white">Mobile:</strong>
-            <br />Left side: Drag to move
-            <br />Right side: Tap to shoot
-            <br />Hold right: Boost
+        <h3 className="font-bold text-white mb-2">Desktop Controls:</h3>
+        <div className="bg-gray-800 bg-opacity-50 rounded p-4">
+          <div className="space-y-1">
+            <div><strong className="text-white">↑↓ or W/S:</strong> Move up/down</div>
+            <div><strong className="text-white">Space:</strong> Shoot laser</div>
+            <div><strong className="text-white">R:</strong> Restart (when game over)</div>
           </div>
         </div>
       </div>

@@ -63,8 +63,8 @@ function GameCanvasInner({ gameKey, width = 360, height = 640, className = '' }:
       className={`game-canvas-container ${className}`}
       style={{
         width: '100%',
-        maxWidth: '420px', // Mobile-friendly max width
-        aspectRatio: '9/16', // Fixed 9:16 aspect ratio
+        maxWidth: '1100px', // Widescreen max width
+        aspectRatio: '16/9', // Fixed 16:9 aspect ratio
         backgroundColor: '#000000',
         borderRadius: '8px',
         overflow: 'hidden',
