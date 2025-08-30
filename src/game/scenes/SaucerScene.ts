@@ -18,16 +18,30 @@ const START_LIVES = 3;            // Starting lives
 
 const STAR_SLOW_SPEED = 24;       // Background star scroll speed
 const STAR_FAST_SPEED = 48;       // Foreground star scroll speed
-const STAR_DENSITY = 0.00012;     // Star density (kept subtle)
 
-const GAME_WIDTH = 960;
-const GAME_HEIGHT = 540;
+const GAME_WIDTH = 1024;
+const GAME_HEIGHT = 576;
+
+// Asteroid size variations
+const ASTEROID_SCALES = [0.6, 1.0, 1.4];
+const ASTEROID_BASE_SPEED = 210;     // px/s baseline
+const ASTEROID_SPEED_VARIANCE = 80;  // ±
+
+// Enemy shooting
+const ENEMY_SHOT_MIN_MS = 800;
+const ENEMY_SHOT_MAX_MS = 1800;
+const ENEMY_LASER_SPEED = 700;
+
+// Scoring
+const POINT_ASTEROID = 100;
+const POINT_ENEMY = 1000;
 
 // Simple game state
 interface GameState {
   lives: number;
   enemyKills: number;
   asteroidKills: number;
+  score: number;
   gameOver: boolean;
   invulnerable: boolean;
   invulnerabilityTime: number;
@@ -63,6 +77,13 @@ interface Projectile {
   y: number;
 }
 
+// Enemy laser
+interface EnemyLaser {
+  sprite: Phaser.GameObjects.Sprite;
+  x: number;
+  y: number;
+}
+
 // Main game scene - simplified Level 1
 export class SaucerScene extends Phaser.Scene {
   // Game state
@@ -70,6 +91,7 @@ export class SaucerScene extends Phaser.Scene {
     lives: START_LIVES,
     enemyKills: 0,
     asteroidKills: 0,
+    score: 0,
     gameOver: false,
     invulnerable: false,
     invulnerabilityTime: 0,
@@ -80,6 +102,7 @@ export class SaucerScene extends Phaser.Scene {
   enemies: Enemy[] = [];
   asteroids: Asteroid[] = [];
   projectiles: Projectile[] = [];
+  enemyLasers: EnemyLaser[] = [];
 
   // Background
   starfieldSlow!: Phaser.GameObjects.TileSprite;
@@ -124,6 +147,7 @@ export class SaucerScene extends Phaser.Scene {
     this.updateEnemies(delta);
     this.updateAsteroids(delta);
     this.updateProjectiles(delta);
+    this.updateEnemyLasers(delta);
 
     // Handle collisions
     this.handleCollisions();
@@ -200,7 +224,7 @@ export class SaucerScene extends Phaser.Scene {
     }
   }
 
-  // Update enemies (simple left movement with wobble)
+  // Update enemies (simple left movement with wobble and shooting)
   private updateEnemies(delta: number): void {
     const dt = delta / 1000;
 
@@ -209,6 +233,12 @@ export class SaucerScene extends Phaser.Scene {
       enemy.y += Math.sin(this.time.now * 0.003 + enemy.wobbleOffset) * 0.5;
       enemy.sprite.x = enemy.x;
       enemy.sprite.y = enemy.y;
+
+      // Check if enemy should shoot
+      if (this.time.now >= enemy.sprite.getData('nextFireAt')) {
+        this.fireEnemyLaser(enemy);
+        enemy.sprite.setData('nextFireAt', this.time.now + Phaser.Math.Between(ENEMY_SHOT_MIN_MS, ENEMY_SHOT_MAX_MS));
+      }
 
       // Remove if off-screen
       if (enemy.x < -50) {
@@ -270,6 +300,7 @@ export class SaucerScene extends Phaser.Scene {
 
           // Update stats
           this.gameState.enemyKills++;
+          this.addScore(POINT_ENEMY);
           sfx.boom();
           this.updateHUD();
         }
@@ -294,6 +325,7 @@ export class SaucerScene extends Phaser.Scene {
 
           // Update stats
           this.gameState.asteroidKills++;
+          this.addScore(POINT_ASTEROID);
           sfx.boom();
           this.updateHUD();
         }
@@ -307,6 +339,23 @@ export class SaucerScene extends Phaser.Scene {
           this.player.sprite.getBounds(),
           entity.sprite.getBounds()
         )) {
+          this.playerHit();
+        }
+      });
+    }
+
+    // Enemy lasers vs Player
+    if (!this.gameState.invulnerable) {
+      this.enemyLasers.forEach((laser, index) => {
+        if (Phaser.Geom.Intersects.RectangleToRectangle(
+          this.player.sprite.getBounds(),
+          laser.sprite.getBounds()
+        )) {
+          // Destroy enemy laser
+          laser.sprite.destroy();
+          this.enemyLasers.splice(index, 1);
+
+          // Hit player
           this.playerHit();
         }
       });
@@ -337,13 +386,28 @@ export class SaucerScene extends Phaser.Scene {
     }
 
     // Show game over text
-    const gameOverText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'GAME OVER', {
+    const gameOverText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 80, 'GAME OVER', {
       fontSize: '48px',
       color: '#ff0000'
     });
     gameOverText.setOrigin(0.5);
 
-    const restartText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 60, 'Press R to Restart', {
+    // Show final score
+    const scoreText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 20, `Score: ${this.gameState.score}`, {
+      fontSize: '24px',
+      color: '#ffffff'
+    });
+    scoreText.setOrigin(0.5);
+
+    // Show high score
+    const highScore = parseInt(localStorage.getItem('grain_highscore') || '0');
+    const highScoreText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 20, `High Score: ${highScore}`, {
+      fontSize: '20px',
+      color: '#cccccc'
+    });
+    highScoreText.setOrigin(0.5);
+
+    const restartText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 80, 'Press R to Restart', {
       fontSize: '24px',
       color: '#ffffff'
     });
@@ -399,19 +463,23 @@ export class SaucerScene extends Phaser.Scene {
     };
 
     enemy.sprite.setScale(0.7);
+    enemy.sprite.setData('nextFireAt', this.time.now + Phaser.Math.Between(ENEMY_SHOT_MIN_MS, ENEMY_SHOT_MAX_MS));
     this.enemies.push(enemy);
   }
 
-  // Spawn asteroid
+  // Spawn asteroid with variable size
   private spawnAsteroid(x: number, y: number): void {
+    const scale = Phaser.Utils.Array.GetRandom(ASTEROID_SCALES);
+    const speed = ASTEROID_BASE_SPEED - (scale - 1.0) * 60 + Phaser.Math.Between(-ASTEROID_SPEED_VARIANCE, ASTEROID_SPEED_VARIANCE);
+
     const asteroid: Asteroid = {
       sprite: this.physics.add.sprite(x, y, 'asteroid'),
       x: x,
       y: y,
-      speed: Phaser.Math.Between(60, 100),
+      speed: speed,
     };
 
-    asteroid.sprite.setScale(0.6 + Math.random() * 0.4);
+    asteroid.sprite.setScale(scale);
     this.asteroids.push(asteroid);
   }
 
@@ -451,6 +519,50 @@ export class SaucerScene extends Phaser.Scene {
     sfx.laser();
   }
 
+  // Update enemy lasers
+  private updateEnemyLasers(delta: number): void {
+    const dt = delta / 1000;
+
+    this.enemyLasers.forEach((laser, index) => {
+      laser.x -= ENEMY_LASER_SPEED * dt;
+      laser.sprite.x = laser.x;
+
+      // Remove if off-screen
+      if (laser.x < -50) {
+        laser.sprite.destroy();
+        this.enemyLasers.splice(index, 1);
+      }
+    });
+  }
+
+  // Fire enemy laser
+  private fireEnemyLaser(enemy: Enemy): void {
+    const laser: EnemyLaser = {
+      sprite: this.physics.add.sprite(enemy.x - 30, enemy.y, 'projectile'),
+      x: enemy.x - 30,
+      y: enemy.y,
+    };
+
+    laser.sprite.setScale(0.6);
+    laser.sprite.setTint(0xff0000); // Red tint for enemy lasers
+    this.enemyLasers.push(laser);
+
+    sfx.laser();
+  }
+
+  // Add score
+  private addScore(points: number): void {
+    this.gameState.score += points;
+
+    // Update high score if applicable
+    const highScore = parseInt(localStorage.getItem('grain_highscore') || '0');
+    if (this.gameState.score > highScore) {
+      localStorage.setItem('grain_highscore', this.gameState.score.toString());
+    }
+
+    this.updateHUD();
+  }
+
   // Update HUD via custom event
   private updateHUD(): void {
     const event: CustomEvent = new CustomEvent('gameEvent', {
@@ -461,6 +573,7 @@ export class SaucerScene extends Phaser.Scene {
           level: 1, // Always Level 1
           enemyKills: this.gameState.enemyKills,
           asteroidKills: this.gameState.asteroidKills,
+          score: this.gameState.score,
           gameOver: this.gameState.gameOver,
         }
       }

@@ -16,10 +16,10 @@ export class BootScene extends Phaser.Scene {
     loadingBar.fillRect(this.cameras.main.width / 2 - 100, this.cameras.main.height / 2, 200, 20);
 
     // Since we're generating textures procedurally, we don't need actual file loading
-    // Just transition to the main scene immediately
+    // Just transition to the menu scene
     this.time.delayedCall(100, () => {
       loadingBar.destroy();
-      this.scene.start('SaucerScene');
+      this.scene.start('MenuScene');
     });
   }
 
@@ -139,27 +139,27 @@ export class BootScene extends Phaser.Scene {
     // Slow stars (background layer)
     const slowGraphics = this.add.graphics();
     for (let i = 0; i < 50; i++) {
-      const x = Math.random() * 960;
-      const y = Math.random() * 540;
+      const x = Math.random() * 1024;
+      const y = Math.random() * 576;
       const size = Math.random() * 1.5 + 0.5;
       const alpha = Math.random() * 0.8 + 0.2;
       slowGraphics.fillStyle(0xffffff, alpha);
       slowGraphics.fillCircle(x, y, size);
     }
-    slowGraphics.generateTexture('starfield-slow', 960, 540);
+    slowGraphics.generateTexture('starfield-slow', 1024, 576);
     slowGraphics.destroy();
 
     // Fast stars (foreground layer)
     const fastGraphics = this.add.graphics();
     for (let i = 0; i < 30; i++) {
-      const x = Math.random() * 960;
-      const y = Math.random() * 540;
+      const x = Math.random() * 1024;
+      const y = Math.random() * 576;
       const size = Math.random() * 2 + 1;
       const alpha = Math.random() * 0.6 + 0.4;
       fastGraphics.fillStyle(0xffffff, alpha);
       fastGraphics.fillCircle(x, y, size);
     }
-    fastGraphics.generateTexture('starfield-fast', 960, 540);
+    fastGraphics.generateTexture('starfield-fast', 1024, 576);
     fastGraphics.destroy();
   }
 }

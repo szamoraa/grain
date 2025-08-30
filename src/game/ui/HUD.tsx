@@ -6,6 +6,7 @@ interface HUDState {
   lives: number;
   enemyKills: number;
   asteroidKills: number;
+  score: number;
   gameOver: boolean;
 }
 
@@ -15,6 +16,7 @@ interface GameEventData {
     lives?: number;
     enemyKills?: number;
     asteroidKills?: number;
+    score?: number;
     gameOver?: boolean;
   };
 }
@@ -24,6 +26,7 @@ export default function HUD() {
     lives: 3,
     enemyKills: 0,
     asteroidKills: 0,
+    score: 0,
     gameOver: false,
   });
 
@@ -41,6 +44,7 @@ export default function HUD() {
               lives: data.lives ?? prev.lives,
               enemyKills: data.enemyKills ?? prev.enemyKills,
               asteroidKills: data.asteroidKills ?? prev.asteroidKills,
+              score: data.score ?? prev.score,
               gameOver: data.gameOver ?? prev.gameOver,
             }));
           }
@@ -84,9 +88,14 @@ export default function HUD() {
     <div className="absolute inset-0 pointer-events-none">
       {/* Top HUD */}
       <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-start pointer-events-auto">
-        {/* Lives */}
-        <div className="flex space-x-2">
-          {renderLives()}
+        {/* Lives and Score */}
+        <div className="flex flex-col space-y-2">
+          <div className="flex space-x-2">
+            {renderLives()}
+          </div>
+          <div className="bg-black bg-opacity-70 px-3 py-1 rounded text-white font-bold">
+            SCORE: {hudState.score}
+          </div>
         </div>
 
         {/* Level */}

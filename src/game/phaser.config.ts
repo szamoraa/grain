@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { BootScene } from './scenes/BootScene';
+import { MenuScene } from './scenes/MenuScene';
 import { SaucerScene } from './scenes/SaucerScene';
 
 // Game configuration for Retro Saucer
@@ -7,8 +8,8 @@ export const createPhaserConfig = (parentElement: string): Phaser.Types.Core.Gam
   return {
     type: Phaser.AUTO, // Use WebGL if available, fallback to Canvas
     parent: parentElement,
-    width: 960, // Internal game resolution - widescreen 16:9
-    height: 540,
+    width: 1024, // Internal game resolution - widescreen 16:9
+    height: 576,
     scale: {
       mode: Phaser.Scale.FIT, // Fit to container while maintaining aspect ratio
       autoCenter: Phaser.Scale.CENTER_BOTH, // Center the game canvas
@@ -21,7 +22,7 @@ export const createPhaserConfig = (parentElement: string): Phaser.Types.Core.Gam
         debug: false, // Disable physics debug for performance
       },
     },
-    scene: [BootScene, SaucerScene], // Scene loading order
+    scene: [BootScene, MenuScene, SaucerScene], // Scene loading order
     render: {
       pixelArt: false, // Smooth graphics
       antialias: true,
