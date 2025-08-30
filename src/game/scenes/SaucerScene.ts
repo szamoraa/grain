@@ -30,7 +30,8 @@ const ASTEROID_SPEED_VARIANCE = 80;  // ±
 // Enemy shooting
 const ENEMY_SHOT_MIN_MS = 800;
 const ENEMY_SHOT_MAX_MS = 1800;
-const ENEMY_LASER_SPEED = 700;
+const ENEMY_LASER_SPEED = 700;     // px/s to the left
+const ENEMY_LASER_DEPTH = 80;      // draw above sprites/starfield
 
 // Scoring
 const POINT_ASTEROID = 100;
@@ -77,12 +78,7 @@ interface Projectile {
   y: number;
 }
 
-// Enemy laser
-interface EnemyLaser {
-  sprite: Phaser.GameObjects.Sprite;
-  x: number;
-  y: number;
-}
+
 
 // Main game scene - simplified Level 1
 export class SaucerScene extends Phaser.Scene {
@@ -102,7 +98,7 @@ export class SaucerScene extends Phaser.Scene {
   enemies: Enemy[] = [];
   asteroids: Asteroid[] = [];
   projectiles: Projectile[] = [];
-  enemyLasers: EnemyLaser[] = [];
+  enemyLasers!: Phaser.Physics.Arcade.Group;
 
   // Background
   starfieldSlow!: Phaser.GameObjects.TileSprite;
@@ -126,6 +122,7 @@ export class SaucerScene extends Phaser.Scene {
     this.initializeBackground();
     this.initializePlayer();
     this.setupInput();
+    this.initializeEnemyLasers();
 
     // Start spawning enemies/asteroids
     this.startSpawner();
@@ -147,7 +144,10 @@ export class SaucerScene extends Phaser.Scene {
     this.updateEnemies(delta);
     this.updateAsteroids(delta);
     this.updateProjectiles(delta);
-    this.updateEnemyLasers(delta);
+
+    // Handle enemy shooting and bullet cleanup
+    this.handleEnemyShooting(time);
+    this.cleanupEnemyLasers();
 
     // Handle collisions
     this.handleCollisions();
@@ -178,6 +178,25 @@ export class SaucerScene extends Phaser.Scene {
     };
 
     this.player.sprite.setScale(0.8);
+  }
+
+  // Initialize enemy lasers group with collision
+  private initializeEnemyLasers(): void {
+    this.enemyLasers = this.physics.add.group({
+      classType: Phaser.Physics.Arcade.Image,
+      maxSize: 64,
+      runChildUpdate: false,
+    });
+
+    // Physics group handles gravity settings automatically
+
+    // Bullet → Player overlap (respect invuln flag)
+    this.physics.add.overlap(this.player.sprite, this.enemyLasers, (_player, bullet) => {
+      const b = bullet as Phaser.Physics.Arcade.Image;
+      if (!b.active) return;
+      b.destroy();
+      this.playerHit();
+    }, undefined, this);
   }
 
   // Set up desktop input only
@@ -236,7 +255,7 @@ export class SaucerScene extends Phaser.Scene {
 
       // Check if enemy should shoot
       if (this.time.now >= enemy.sprite.getData('nextFireAt')) {
-        this.fireEnemyLaser(enemy);
+        this.fireEnemyLaser(enemy.sprite);
         enemy.sprite.setData('nextFireAt', this.time.now + Phaser.Math.Between(ENEMY_SHOT_MIN_MS, ENEMY_SHOT_MAX_MS));
       }
 
@@ -344,22 +363,7 @@ export class SaucerScene extends Phaser.Scene {
       });
     }
 
-    // Enemy lasers vs Player
-    if (!this.gameState.invulnerable) {
-      this.enemyLasers.forEach((laser, index) => {
-        if (Phaser.Geom.Intersects.RectangleToRectangle(
-          this.player.sprite.getBounds(),
-          laser.sprite.getBounds()
-        )) {
-          // Destroy enemy laser
-          laser.sprite.destroy();
-          this.enemyLasers.splice(index, 1);
-
-          // Hit player
-          this.playerHit();
-        }
-      });
-    }
+    // Enemy lasers vs Player handled by physics overlap in initializeEnemyLasers()
   }
 
   // Handle player taking damage
@@ -508,7 +512,7 @@ export class SaucerScene extends Phaser.Scene {
     this.lastShotTime = this.time.now;
 
     const projectile: Projectile = {
-      sprite: this.physics.add.sprite(PLAYER_X + 30, this.player.y, 'projectile'),
+      sprite: this.physics.add.sprite(PLAYER_X + 30, this.player.y, 'playerLaser'),
       x: PLAYER_X + 30,
       y: this.player.y,
     };
@@ -519,33 +523,66 @@ export class SaucerScene extends Phaser.Scene {
     sfx.laser();
   }
 
-  // Update enemy lasers
-  private updateEnemyLasers(delta: number): void {
-    const dt = delta / 1000;
 
-    this.enemyLasers.forEach((laser, index) => {
-      laser.x -= ENEMY_LASER_SPEED * dt;
-      laser.sprite.x = laser.x;
 
-      // Remove if off-screen
-      if (laser.x < -50) {
-        laser.sprite.destroy();
-        this.enemyLasers.splice(index, 1);
+  // Handle enemy shooting based on their own timers
+  private handleEnemyShooting(time: number): void {
+    this.enemies.forEach((enemy) => {
+      if (!enemy.sprite.active) return;
+      const nextFireAt = enemy.sprite.getData('nextFireAt');
+      if (nextFireAt && time >= nextFireAt) {
+        this.fireEnemyLaser(enemy.sprite);
+        enemy.sprite.setData('nextFireAt', time + Phaser.Math.Between(ENEMY_SHOT_MIN_MS, ENEMY_SHOT_MAX_MS));
       }
     });
   }
 
-  // Fire enemy laser
-  private fireEnemyLaser(enemy: Enemy): void {
-    const laser: EnemyLaser = {
-      sprite: this.physics.add.sprite(enemy.x - 30, enemy.y, 'projectile'),
-      x: enemy.x - 30,
-      y: enemy.y,
-    };
+  // Cleanup enemy bullets when offscreen
+  private cleanupEnemyLasers(): void {
+    this.enemyLasers.children.iterate((child: Phaser.GameObjects.GameObject) => {
+      const bullet = child as Phaser.Physics.Arcade.Image;
+      if (!bullet || !bullet.active) return null;
+      if (bullet.x <= (bullet.getData("killAt") ?? -40)) {
+        bullet.destroy();
+      }
+      return null;
+    });
+  }
 
-    laser.sprite.setScale(0.6);
-    laser.sprite.setTint(0xff0000); // Red tint for enemy lasers
-    this.enemyLasers.push(laser);
+  // Fire enemy laser - chunky, bright, additive glow
+  private fireEnemyLaser(from: Phaser.GameObjects.Sprite): void {
+    const x = from.x - 20; // from the nose, slightly left of enemy
+    const y = from.y;
+    const b = this.enemyLasers.get(x, y, "enemyLaser") as Phaser.Physics.Arcade.Image | null;
+    if (!b) return;
+
+    b.setActive(true).setVisible(true);
+    b.setBlendMode(Phaser.BlendModes.ADD);   // glow pop
+    b.setDepth(ENEMY_LASER_DEPTH);
+    b.setAngle(180);                         // face left (optional)
+
+    // Hitbox roughly matches texture
+    b.setSize(18, 6);
+
+    // Motion
+    b.setVelocityX(-ENEMY_LASER_SPEED);
+    b.setVelocityY(0);
+
+    // Auto-destroy offscreen
+    b.setData("killAt", -40); // x threshold
+
+    // Muzzle flash for visibility
+    const flash = this.add.image(from.x - 10, from.y, "enemyLaser")
+      .setDepth(ENEMY_LASER_DEPTH + 1)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setScale(0.8);
+    this.tweens.add({
+      targets: flash,
+      alpha: 0,
+      scale: 1.2,
+      duration: 80,
+      onComplete: () => flash.destroy()
+    });
 
     sfx.laser();
   }

@@ -161,5 +161,25 @@ export class BootScene extends Phaser.Scene {
     }
     fastGraphics.generateTexture('starfield-fast', 1024, 576);
     fastGraphics.destroy();
+
+    // ENEMY LASER (red) — 18x6 px with bright core for visibility
+    const enemyLaserGraphics = this.add.graphics({ x: 0, y: 0 });
+    enemyLaserGraphics.fillStyle(0x6a0000, 1);
+    enemyLaserGraphics.fillRoundedRect(0, 0, 18, 6, 3);
+    enemyLaserGraphics.fillStyle(0xff3b3b, 1);
+    enemyLaserGraphics.fillRoundedRect(2, 1, 14, 4, 2);
+    enemyLaserGraphics.generateTexture("enemyLaser", 18, 6);
+    enemyLaserGraphics.destroy();
+
+    // PLAYER LASER (blue) — if not already present
+    if (!this.textures.exists("playerLaser")) {
+      const playerLaserGraphics = this.add.graphics({ x: 0, y: 0 });
+      playerLaserGraphics.fillStyle(0x002a6a, 1);
+      playerLaserGraphics.fillRoundedRect(0, 0, 18, 6, 3);
+      playerLaserGraphics.fillStyle(0x53a8ff, 1);
+      playerLaserGraphics.fillRoundedRect(2, 1, 14, 4, 2);
+      playerLaserGraphics.generateTexture("playerLaser", 18, 6);
+      playerLaserGraphics.destroy();
+    }
   }
 }
