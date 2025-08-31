@@ -7,6 +7,8 @@ interface HUDState {
   enemyKills: number;
   asteroidKills: number;
   score: number;
+  waveIndex: number;
+  progress: number;
   gameOver: boolean;
 }
 
@@ -17,8 +19,10 @@ interface GameEventData {
     enemyKills?: number;
     asteroidKills?: number;
     score?: number;
+    level?: number;
     gameOver?: boolean;
   };
+  progress?: number;
 }
 
 export default function HUD() {
@@ -27,6 +31,8 @@ export default function HUD() {
     enemyKills: 0,
     asteroidKills: 0,
     score: 0,
+    waveIndex: 1,
+    progress: 0,
     gameOver: false,
   });
 
@@ -45,6 +51,7 @@ export default function HUD() {
               enemyKills: data.enemyKills ?? prev.enemyKills,
               asteroidKills: data.asteroidKills ?? prev.asteroidKills,
               score: data.score ?? prev.score,
+              waveIndex: data.level ?? prev.waveIndex,
               gameOver: data.gameOver ?? prev.gameOver,
             }));
           }
@@ -59,10 +66,29 @@ export default function HUD() {
       }
     };
 
+    // Listen for progress updates
+    const handleProgress = (progress: number) => {
+      setHudState(prev => ({
+        ...prev,
+        progress: progress
+      }));
+    };
+
     window.addEventListener('gameEvent', handleGameEvent as EventListener);
+
+    // Listen for progress events from Phaser scene
+    const handleProgressEvent = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const eventData = customEvent.detail as { type: string; progress: number };
+      if (eventData?.type === 'hud:progress') {
+        handleProgress(eventData.progress);
+      }
+    };
+    window.addEventListener('gameEvent', handleProgressEvent);
 
     return () => {
       window.removeEventListener('gameEvent', handleGameEvent as EventListener);
+      window.removeEventListener('gameEvent', handleProgressEvent);
     };
   }, []);
 
@@ -86,8 +112,16 @@ export default function HUD() {
 
   return (
     <div className="absolute inset-0 pointer-events-none">
+      {/* Progress Bar - Very top */}
+      <div className="absolute top-0 left-0 right-0 bg-gray-800">
+        <div
+          className="bg-gradient-to-r from-green-400 to-blue-500 h-2 transition-all duration-200"
+          style={{ width: `${hudState.progress * 100}%` }}
+        />
+      </div>
+
       {/* Top HUD */}
-      <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-start pointer-events-auto">
+      <div className="absolute top-2 left-0 right-0 p-4 flex justify-between items-start pointer-events-auto">
         {/* Lives and Score */}
         <div className="flex flex-col space-y-2">
           <div className="flex space-x-2">
@@ -98,9 +132,9 @@ export default function HUD() {
           </div>
         </div>
 
-        {/* Level */}
+        {/* Wave */}
         <div className="bg-black bg-opacity-70 px-4 py-2 rounded text-white font-bold text-lg">
-          LEVEL 1
+          WAVE {hudState.waveIndex}
         </div>
       </div>
 

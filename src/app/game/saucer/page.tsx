@@ -31,11 +31,11 @@ export default function SaucerGamePage() {
 
 
   return (
-    <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4">
+    <div className="min-h-screen bg-white flex flex-col items-center justify-center p-4">
       {/* Header */}
       <div className="mb-4 text-center">
-        <h1 className="text-3xl font-bold text-white mb-2">Retro Saucer</h1>
-        <p className="text-gray-300 mb-4">
+        <h1 className="text-3xl font-bold text-black mb-2">Retro Saucer</h1>
+        <p className="text-gray-700 mb-4">
           Navigate through space, destroy enemies, and survive as long as possible!
         </p>
 
@@ -67,19 +67,19 @@ export default function SaucerGamePage() {
       </div>
 
       {/* Instructions */}
-      <div className="mt-6 max-w-md text-center text-gray-300 text-sm">
-        <h3 className="font-bold text-white mb-2">Desktop Controls:</h3>
-        <div className="bg-gray-800 bg-opacity-50 rounded p-4">
+      <div className="mt-6 max-w-md text-center text-gray-700 text-sm">
+        <h3 className="font-bold text-black mb-2">Desktop Controls:</h3>
+        <div className="bg-gray-100 border rounded p-4">
           <div className="space-y-1">
-            <div><strong className="text-white">↑↓ or W/S:</strong> Move up/down</div>
-            <div><strong className="text-white">Space:</strong> Shoot laser</div>
-            <div><strong className="text-white">R:</strong> Restart (when game over)</div>
+            <div><strong className="text-black">↑↓ or W/S:</strong> Move up/down</div>
+            <div><strong className="text-black">Space:</strong> Shoot laser</div>
+            <div><strong className="text-black">R:</strong> Restart (when game over)</div>
           </div>
         </div>
       </div>
 
       {/* Footer */}
-      <div className="mt-8 text-center text-gray-400 text-xs">
+      <div className="mt-8 text-center text-gray-500 text-xs">
         <p>A retro-futuristic side-scroller built with Phaser 3</p>
         <p className="mt-1">Navigate • Shoot • Survive</p>
       </div>
