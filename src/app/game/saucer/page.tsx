@@ -31,58 +31,61 @@ export default function SaucerGamePage() {
 
 
   return (
-    <div className="min-h-screen bg-white flex flex-col items-center justify-center p-4">
-      {/* Header */}
-      <div className="mb-4 text-center">
-        <h1 className="text-3xl font-bold text-black mb-2">Retro Saucer</h1>
-        <p className="text-gray-700 mb-4">
-          Navigate through space, destroy enemies, and survive as long as possible!
-        </p>
+    <main className="min-h-dvh">
+      <div className="mx-auto max-w-[1900px] px-6 pt-8 pb-10">
+        <header className="mb-6">
+          <h1 className="text-[18px] font-semibold tracking-tight text-white/90">Retro Saucer</h1>
+          <p className="text-[12px] text-white/50 mt-1">Built with Phaser 3 — with love, Santiago</p>
+        </header>
 
-        {/* Back to menu link */}
-        <Link
-          href="/"
-          className="inline-block px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
+        {/* Game Container */}
+        <div
+          ref={gameContainerRef}
+          className="relative w-full max-w-[1800px] mx-auto mb-8"
         >
-          ← Back to Menu
-        </Link>
-      </div>
+          {/* Game Canvas */}
+          <GameCanvas
+            gameKey="saucer"
+            width={1600}
+            height={720}
+            className="w-full h-full"
+          />
 
-      {/* Game Container */}
-      <div
-        ref={gameContainerRef}
-        className="relative w-full max-w-4xl mx-auto"
-        style={{ aspectRatio: '16/9' }}
-      >
-        {/* Game Canvas */}
-        <GameCanvas
-          gameKey="saucer"
-          width={960}
-          height={540}
-          className="w-full h-full"
-        />
+          {/* HUD Overlay */}
+          <HUD />
+        </div>
 
-        {/* HUD Overlay */}
-        <HUD />
-      </div>
-
-      {/* Instructions */}
-      <div className="mt-6 max-w-md text-center text-gray-700 text-sm">
-        <h3 className="font-bold text-black mb-2">Desktop Controls:</h3>
-        <div className="bg-gray-100 border rounded p-4">
-          <div className="space-y-1">
-            <div><strong className="text-black">↑↓ or W/S:</strong> Move up/down</div>
-            <div><strong className="text-black">Space:</strong> Shoot laser</div>
-            <div><strong className="text-black">R:</strong> Restart (when game over)</div>
+        {/* Instructions */}
+        <div className="max-w-md">
+          <h3 className="font-medium text-white/80 mb-3 text-sm">Desktop Controls</h3>
+          <div className="bg-white/5 rounded-lg p-4 border border-white/10">
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-white/60">Move:</span>
+                <span className="text-white/90">↑↓ or W/S</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/60">Shoot:</span>
+                <span className="text-white/90">Space</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/60">Restart:</span>
+                <span className="text-white/90">R (when game over)</span>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Footer */}
-      <div className="mt-8 text-center text-gray-500 text-xs">
-        <p>A retro-futuristic side-scroller built with Phaser 3</p>
-        <p className="mt-1">Navigate • Shoot • Survive</p>
+        {/* Back to menu link */}
+        <div className="mt-6">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 text-white/80 hover:text-white rounded-lg transition-colors text-sm border border-white/10"
+          >
+            ← Back to Menu
+          </Link>
+        </div>
       </div>
-    </div>
+    </main>
   );
 }

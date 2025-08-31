@@ -8,8 +8,8 @@ export const createPhaserConfig = (parentElement: string): Phaser.Types.Core.Gam
   return {
     type: Phaser.AUTO, // Use WebGL if available, fallback to Canvas
     parent: parentElement,
-    width: 1024, // Internal game resolution - widescreen 16:9
-    height: 576,
+    width: 1600, // Internal game resolution - wider 16:7.2 aspect
+    height: 720,
     scale: {
       mode: Phaser.Scale.FIT, // Fit to container while maintaining aspect ratio
       autoCenter: Phaser.Scale.CENTER_BOTH, // Center the game canvas

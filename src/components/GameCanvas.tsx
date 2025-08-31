@@ -63,12 +63,14 @@ function GameCanvasInner({ gameKey, width = 360, height = 640, className = '' }:
       className={`game-canvas-container ${className}`}
       style={{
         width: '100%',
-        maxWidth: '1280px', // Widescreen max width
-        aspectRatio: '16/9', // Fixed 16:9 aspect ratio
+        maxWidth: '1800px', // Wider max width
+        aspectRatio: '1600/720', // Fixed 16:7.2 aspect ratio
         backgroundColor: '#000000',
-        borderRadius: '8px',
+        borderRadius: '24px', // Larger rounded corners
         overflow: 'hidden',
         position: 'relative',
+        boxShadow: '0 10px 40px rgba(0, 0, 0, 0.35)', // Soft shadow
+        border: '1px solid rgba(255, 255, 255, 0.06)', // Subtle border
       }}
     >
       {/* Game canvas will be inserted here by Phaser */}

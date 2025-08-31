@@ -19,8 +19,8 @@ const START_LIVES = 3;            // Starting lives
 const STAR_SLOW_SPEED = 24;       // Background star scroll speed
 const STAR_FAST_SPEED = 48;       // Foreground star scroll speed
 
-const GAME_WIDTH = 1024;
-const GAME_HEIGHT = 576;
+const GAME_WIDTH = 1600;
+const GAME_HEIGHT = 720;
 
 // Asteroid size variations
 const ASTEROID_SCALES = [0.6, 1.0, 1.4];
@@ -435,33 +435,49 @@ export class SaucerScene extends Phaser.Scene {
       this.spawnerTimer.destroy();
     }
 
-    // Show game over text
-    const gameOverText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 80, 'GAME OVER', {
-      fontSize: '48px',
-      color: '#ff0000'
+    // Get camera center for perfect centering
+    const cx = this.cameras.main.centerX;
+    const cy = this.cameras.main.centerY;
+
+    // Show game over text - perfectly centered
+    const gameOverText = this.add.text(cx, cy - 60, 'GAME OVER', {
+      fontSize: '64px',
+      color: '#ff2b2b',
+      fontStyle: 'bold'
     });
-    gameOverText.setOrigin(0.5);
+    gameOverText.setOrigin(0.5, 0.5);
 
     // Show final score
-    const scoreText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 20, `Score: ${this.gameState.score}`, {
-      fontSize: '24px',
+    const scoreText = this.add.text(cx, cy, `Score: ${this.gameState.score}`, {
+      fontSize: '28px',
       color: '#ffffff'
     });
-    scoreText.setOrigin(0.5);
+    scoreText.setOrigin(0.5, 0.5);
 
     // Show high score
     const highScore = parseInt(localStorage.getItem('grain_highscore') || '0');
-    const highScoreText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 20, `High Score: ${highScore}`, {
-      fontSize: '20px',
+    const highScoreText = this.add.text(cx, cy + 32, `High Score: ${highScore}`, {
+      fontSize: '24px',
       color: '#cccccc'
     });
-    highScoreText.setOrigin(0.5);
+    highScoreText.setOrigin(0.5, 0.5);
 
-    const restartText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 80, 'Press R to Restart', {
+    // Restart instruction
+    const restartText = this.add.text(cx, cy + 72, 'Press R to Restart', {
       fontSize: '24px',
       color: '#ffffff'
     });
-    restartText.setOrigin(0.5);
+    restartText.setOrigin(0.5, 0.5);
+
+    // Handle resize to keep centering
+    this.scale.on('resize', () => {
+      const newCx = this.cameras.main.centerX;
+      const newCy = this.cameras.main.centerY;
+      gameOverText.setPosition(newCx, newCy - 60);
+      scoreText.setPosition(newCx, newCy);
+      highScoreText.setPosition(newCx, newCy + 32);
+      restartText.setPosition(newCx, newCy + 72);
+    });
 
     // Add restart key
     const restartKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.R);
@@ -665,14 +681,14 @@ export class SaucerScene extends Phaser.Scene {
     // Award wave completion bonus
     this.addScore(WAVE_CLEAR_BONUS);
 
-    // Show wave completion banner
-    const banner = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 100,
+    // Show wave completion banner - centered
+    const banner = this.add.text(this.cameras.main.centerX, this.cameras.main.centerY - 100,
       `WAVE ${this.gameState.waveIndex} CLEAR +${WAVE_CLEAR_BONUS}`, {
       fontSize: '32px',
       color: '#00ff00',
       fontStyle: 'bold'
     });
-    banner.setOrigin(0.5);
+    banner.setOrigin(0.5, 0.5);
 
     // Fade out banner after 2 seconds
     this.tweens.add({

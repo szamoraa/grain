@@ -139,27 +139,27 @@ export class BootScene extends Phaser.Scene {
     // Slow stars (background layer)
     const slowGraphics = this.add.graphics();
     for (let i = 0; i < 50; i++) {
-      const x = Math.random() * 1024;
-      const y = Math.random() * 576;
+      const x = Math.random() * 1600;
+      const y = Math.random() * 720;
       const size = Math.random() * 1.5 + 0.5;
       const alpha = Math.random() * 0.8 + 0.2;
       slowGraphics.fillStyle(0xffffff, alpha);
       slowGraphics.fillCircle(x, y, size);
     }
-    slowGraphics.generateTexture('starfield-slow', 1024, 576);
+    slowGraphics.generateTexture('starfield-slow', 1600, 720);
     slowGraphics.destroy();
 
     // Fast stars (foreground layer)
     const fastGraphics = this.add.graphics();
     for (let i = 0; i < 30; i++) {
-      const x = Math.random() * 1024;
-      const y = Math.random() * 576;
+      const x = Math.random() * 1600;
+      const y = Math.random() * 720;
       const size = Math.random() * 2 + 1;
       const alpha = Math.random() * 0.6 + 0.4;
       fastGraphics.fillStyle(0xffffff, alpha);
       fastGraphics.fillCircle(x, y, size);
     }
-    fastGraphics.generateTexture('starfield-fast', 1024, 576);
+    fastGraphics.generateTexture('starfield-fast', 1600, 720);
     fastGraphics.destroy();
 
     // ENEMY LASER (red) — 18x6 px with bright core for visibility

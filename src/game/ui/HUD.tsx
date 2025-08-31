@@ -113,7 +113,7 @@ export default function HUD() {
   return (
     <div className="absolute inset-0 pointer-events-none">
       {/* Progress Bar - Very top */}
-      <div className="absolute top-0 left-0 right-0 bg-gray-800">
+      <div className="absolute top-0 left-0 right-0 bg-black/20">
         <div
           className="bg-gradient-to-r from-green-400 to-blue-500 h-2 transition-all duration-200"
           style={{ width: `${hudState.progress * 100}%` }}
