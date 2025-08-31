@@ -135,7 +135,7 @@ export default function HUD() {
             SCORE: {hudState.score}
           </div>
           <div className="bg-black bg-opacity-70 px-3 py-1 rounded text-white font-bold text-sm">
-            WAVE {hudState.waveIndex}
+            WAVE {hudState.waveIndex}/3
           </div>
         </div>
       </div>

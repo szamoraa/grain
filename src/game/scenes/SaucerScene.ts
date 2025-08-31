@@ -9,9 +9,7 @@ const PLAYER_SPEED = 380;         // Vertical speed in px/s
 const LASER_COOLDOWN_MS = 140;    // Laser fire rate
 const LASER_SPEED = 900;          // Laser projectile speed
 
-const SPAWN_MIN_MS = 800;         // Minimum spawn delay
-const SPAWN_MAX_MS = 1100;        // Maximum spawn delay
-const ASTEROID_CHANCE = 0.7;      // Chance of spawning asteroid vs enemy
+// Spawn settings are now wave-specific in WAVES array
 
 const INVULN_MS = 1000;           // Invulnerability duration after hit
 const START_LIVES = 3;            // Starting lives
@@ -24,12 +22,8 @@ const GAME_HEIGHT = 720;
 
 // Asteroid size variations
 const ASTEROID_SCALES = [0.6, 1.0, 1.4];
-const ASTEROID_BASE_SPEED = 210;     // px/s baseline
-const ASTEROID_SPEED_VARIANCE = 80;  // ±
 
 // Enemy shooting
-const ENEMY_SHOT_MIN_MS = 800;
-const ENEMY_SHOT_MAX_MS = 1800;
 const ENEMY_LASER_SPEED = 700;     // px/s to the left
 const ENEMY_LASER_DEPTH = 80;      // draw above sprites/starfield
 
@@ -38,22 +32,67 @@ const POINT_ASTEROID = 100;
 const POINT_ENEMY = 1000;
 
 // Power-ups
-const POWER_UP_SPAWN_CHANCE = 0.05;      // 5% chance on enemy/asteroid destruction
 const SHIELD_DURATION_MS = 5000;          // 5 seconds of invincibility
-const MAX_LIVES = 5;                      // Cap on extra lives
 
 // Inter-wave breather
 const INTER_WAVE_MS = 1500;               // 1.5s pause between waves
 
-// Wave system
-const WAVE1_DURATION_MS = 20000;   // ≈ 20s for Wave 1
-const WAVE_DURATION_GROWTH_MS = 0; // keep constant length for now
+// Wave system - exactly 3 waves
+type WaveSpec = {
+  durationMs: number;
+  asteroidSpawnEveryMs: [number, number];
+  enemySpawnEveryMs: [number, number];
+  asteroidChance: number; // 0..1 chance to spawn asteroid vs enemy
+  asteroidSpeedBase: number;
+  enemySpeedBase: number;
+  enemyFireEveryMs: [number, number];
+  powerups: {
+    shieldChanceOnKill: number; // 0..1 per kill roll
+  };
+};
 
-// Difficulty ramp per wave (applied multiplicatively or additively each wave)
-const SPAWN_INTERVAL_MULT_PER_WAVE = 0.92;  // spawn a bit faster each wave
-const ENEMY_FIRE_RATE_MULT_PER_WAVE = 0.94; // enemies shoot a bit faster
-const ASTEROID_SPEED_ADD_PER_WAVE = 12;     // px/s faster
-const ENEMY_SPEED_ADD_PER_WAVE = 10;        // px/s faster
+const WAVES: WaveSpec[] = [
+  // Wave 1 — EASY ~10s
+  {
+    durationMs: 10000,
+    asteroidSpawnEveryMs: [900, 1200],
+    enemySpawnEveryMs: [1600, 2200],
+    asteroidChance: 0.7, // 70% asteroids
+    asteroidSpeedBase: 220,
+    enemySpeedBase: 240,
+    enemyFireEveryMs: [1200, 1800],
+    powerups: { shieldChanceOnKill: 0.00 }, // none in Wave 1
+  },
+  // Wave 2 — MEDIUM ~20s
+  {
+    durationMs: 20000,
+    asteroidSpawnEveryMs: [700, 1000],
+    enemySpawnEveryMs: [1300, 1900],
+    asteroidChance: 0.65, // 65% asteroids (slightly more enemies)
+    asteroidSpeedBase: 260,
+    enemySpeedBase: 280,
+    enemyFireEveryMs: [1000, 1500],
+    powerups: { shieldChanceOnKill: 0.07 }, // 7% chance per kill
+  },
+  // Wave 3 — HARDER ~30s
+  {
+    durationMs: 30000,
+    asteroidSpawnEveryMs: [520, 820],
+    enemySpawnEveryMs: [1000, 1500],
+    asteroidChance: 0.6, // 60% asteroids (even more enemies)
+    asteroidSpeedBase: 300,
+    enemySpeedBase: 320,
+    enemyFireEveryMs: [850, 1250],
+    powerups: { shieldChanceOnKill: 0.10 }, // 10% chance per kill
+  },
+];
+
+// Size-based asteroid speed modifiers
+const ASTEROID_SIZE_SPEED_MOD = (scale: number): number => {
+  // Large (1.4) → slower; small (0.6) → faster
+  // scale 0.6 → +80, 1.0 → 0, 1.4 → -70
+  return Math.round((1.0 - scale) * 200); // linear mapping
+};
 
 // Wave bonus
 const WAVE_CLEAR_BONUS = 1000;              // score on wave complete
@@ -158,22 +197,18 @@ export class SaucerScene extends Phaser.Scene {
   spaceKey!: Phaser.Input.Keyboard.Key;
 
   // Timers
-  spawnerTimer?: Phaser.Time.TimerEvent;
   lastShotTime: number = 0;
   lastWallTickAt: number = 0;
 
-  // Wave system
+  // Wave system - exactly 3 waves
+  currentWaveIndex: number = 0;
+  currentWave: WaveSpec = WAVES[0];
   waveStartTime: number = 0;
-  waveDuration: number = WAVE1_DURATION_MS;
   inInterWave: boolean = false;
 
-  // Dynamic difficulty (changes per wave)
-  currentSpawnMin: number = SPAWN_MIN_MS;
-  currentSpawnMax: number = SPAWN_MAX_MS;
-  currentEnemyFireMin: number = ENEMY_SHOT_MIN_MS;
-  currentEnemyFireMax: number = ENEMY_SHOT_MAX_MS;
-  currentAsteroidSpeedBase: number = ASTEROID_BASE_SPEED;
-  currentEnemySpeedBase: number = 80; // Base enemy speed
+  // Spawn timers per wave
+  asteroidTimer: Phaser.Time.TimerEvent | null = null;
+  enemyTimer: Phaser.Time.TimerEvent | null = null;
 
   constructor() {
     super({ key: 'SaucerScene' });
@@ -186,11 +221,8 @@ export class SaucerScene extends Phaser.Scene {
     this.setupInput();
     this.initializeEnemyLasers();
 
-    // Initialize wave system
-    this.waveStartTime = this.time.now;
-
-    // Start spawning enemies/asteroids
-    this.startSpawner();
+    // Initialize wave system - start Wave 1
+    this.startWave(0);
 
     // Send initial HUD update
     this.updateHUD();
@@ -328,9 +360,10 @@ export class SaucerScene extends Phaser.Scene {
       enemy.sprite.y = enemy.y;
 
       // Check if enemy should shoot
-      if (this.time.now >= enemy.sprite.getData('nextFireAt')) {
+      const nextFireAt = enemy.sprite.getData('nextFireAt');
+      if (nextFireAt && this.time.now >= nextFireAt) {
         this.fireEnemyLaser(enemy.sprite);
-        enemy.sprite.setData('nextFireAt', this.time.now + Phaser.Math.Between(ENEMY_SHOT_MIN_MS, ENEMY_SHOT_MAX_MS));
+        this.scheduleEnemyFire(enemy.sprite);
       }
 
       // Remove if off-screen
@@ -397,9 +430,9 @@ export class SaucerScene extends Phaser.Scene {
           sfx.boom();
           this.updateHUD();
 
-          // Chance to spawn power-up
-          if (Math.random() < POWER_UP_SPAWN_CHANCE) {
-            this.spawnPowerUp(enemy.sprite.x, enemy.sprite.y);
+          // Chance to spawn shield power-up (waves 2-3 only)
+          if (this.currentWaveIndex >= 1 && Math.random() < this.currentWave.powerups.shieldChanceOnKill) {
+            this.spawnShieldPowerUp(enemy.sprite.x, enemy.sprite.y);
           }
         }
       });
@@ -427,9 +460,9 @@ export class SaucerScene extends Phaser.Scene {
           sfx.boom();
           this.updateHUD();
 
-          // Chance to spawn power-up
-          if (Math.random() < POWER_UP_SPAWN_CHANCE) {
-            this.spawnPowerUp(asteroid.sprite.x, asteroid.sprite.y);
+          // Chance to spawn shield power-up (waves 2-3 only)
+          if (this.currentWaveIndex >= 1 && Math.random() < this.currentWave.powerups.shieldChanceOnKill) {
+            this.spawnShieldPowerUp(asteroid.sprite.x, asteroid.sprite.y);
           }
         }
       });
@@ -468,10 +501,8 @@ export class SaucerScene extends Phaser.Scene {
   private gameOver(): void {
     this.gameState.gameOver = true;
 
-    // Stop spawner
-    if (this.spawnerTimer) {
-      this.spawnerTimer.destroy();
-    }
+    // Stop all spawn timers
+    this.stopTimers();
 
     // Get camera center for perfect centering
     const cx = this.cameras.main.centerX;
@@ -535,14 +566,7 @@ export class SaucerScene extends Phaser.Scene {
   }
 
   // Start spawning enemies/asteroids
-  private startSpawner(): void {
-    this.spawnerTimer = this.time.addEvent({
-      delay: Phaser.Math.Between(this.currentSpawnMin, this.currentSpawnMax),
-      callback: this.spawnEntity,
-      callbackScope: this,
-      loop: true
-    });
-  }
+
 
   // Spawn random entity (allows edge spawns to remove safe spaces)
   private spawnEntity(): void {
@@ -552,7 +576,7 @@ export class SaucerScene extends Phaser.Scene {
     const spawnX = GAME_WIDTH + 50;
     const spawnY = Phaser.Math.Between(EDGE_PADDING, GAME_HEIGHT - EDGE_PADDING);
 
-    if (Math.random() < ASTEROID_CHANCE) {
+    if (Math.random() < this.currentWave.asteroidChance) {
       this.spawnAsteroid(spawnX, spawnY);
     } else {
       this.spawnEnemy(spawnX, spawnY);
@@ -565,19 +589,26 @@ export class SaucerScene extends Phaser.Scene {
       sprite: this.physics.add.sprite(x, y, 'enemy-saucer'),
       x: x,
       y: y,
-      speed: Phaser.Math.Between(this.currentEnemySpeedBase, this.currentEnemySpeedBase + 40),
+      speed: Phaser.Math.Between(this.currentWave.enemySpeedBase, this.currentWave.enemySpeedBase + 40),
       wobbleOffset: Math.random() * Math.PI * 2,
     };
 
     enemy.sprite.setScale(0.7);
-    enemy.sprite.setData('nextFireAt', this.time.now + Phaser.Math.Between(this.currentEnemyFireMin, this.currentEnemyFireMax));
+    this.scheduleEnemyFire(enemy.sprite);
     this.enemies.push(enemy);
+  }
+
+  // Schedule enemy fire using wave-specific cadence
+  private scheduleEnemyFire(enemy: Phaser.GameObjects.Sprite): void {
+    const [min, max] = this.currentWave.enemyFireEveryMs;
+    enemy.setData('nextFireAt', this.time.now + Phaser.Math.Between(min, max));
   }
 
   // Spawn asteroid with variable size
   private spawnAsteroid(x: number, y: number): void {
     const scale = Phaser.Utils.Array.GetRandom(ASTEROID_SCALES);
-    const speed = this.currentAsteroidSpeedBase - (scale - 1.0) * 60 + Phaser.Math.Between(-ASTEROID_SPEED_VARIANCE, ASTEROID_SPEED_VARIANCE);
+    const baseSpeed = this.currentWave.asteroidSpeedBase;
+    const speed = baseSpeed + ASTEROID_SIZE_SPEED_MOD(scale) + Phaser.Math.Between(-30, 30);
 
     const asteroid: Asteroid = {
       sprite: this.physics.add.sprite(x, y, 'asteroid'),
@@ -635,7 +666,7 @@ export class SaucerScene extends Phaser.Scene {
       const nextFireAt = enemy.sprite.getData('nextFireAt');
       if (nextFireAt && time >= nextFireAt) {
         this.fireEnemyLaser(enemy.sprite);
-        enemy.sprite.setData('nextFireAt', time + Phaser.Math.Between(ENEMY_SHOT_MIN_MS, ENEMY_SHOT_MAX_MS));
+        this.scheduleEnemyFire(enemy.sprite);
       }
     });
   }
@@ -706,10 +737,10 @@ export class SaucerScene extends Phaser.Scene {
   // Update wave system - endless progression
   private updateWaveSystem(time: number): void {
     const elapsed = time - this.waveStartTime;
-    this.gameState.progress = Phaser.Math.Clamp(elapsed / this.waveDuration, 0, 1);
+    this.gameState.progress = Phaser.Math.Clamp(elapsed / this.currentWave.durationMs, 0, 1);
 
     // Check for wave completion
-    if (elapsed >= this.waveDuration) {
+    if (elapsed >= this.currentWave.durationMs) {
       this.completeWave();
     }
 
@@ -717,14 +748,14 @@ export class SaucerScene extends Phaser.Scene {
     this.events.emit('hud:progress', this.gameState.progress);
   }
 
-  // Complete current wave and start next
+  // Complete current wave and transition to next or finish
   private completeWave(): void {
     // Award wave completion bonus
     this.addScore(WAVE_CLEAR_BONUS);
 
     // Show wave completion banner - centered
     const banner = this.add.text(this.cameras.main.centerX, this.cameras.main.centerY - 100,
-      `WAVE ${this.gameState.waveIndex} CLEAR +${WAVE_CLEAR_BONUS}`, {
+      `WAVE ${this.currentWaveIndex + 1} CLEAR +${WAVE_CLEAR_BONUS}`, {
       fontSize: '32px',
       color: '#00ff00',
       fontStyle: 'bold'
@@ -734,40 +765,130 @@ export class SaucerScene extends Phaser.Scene {
     // Start inter-wave breather - pause spawns for 1.5s
     this.inInterWave = true;
 
-    // Fade out banner after 1.5 seconds and start next wave
+    // Fade out banner after 1.5 seconds and transition
     this.tweens.add({
       targets: banner,
       alpha: 0,
       duration: INTER_WAVE_MS,
       onComplete: () => {
         banner.destroy();
-        this.startNextWave();
+        // Check if we have more waves or finished
+        if (this.currentWaveIndex < 2) {
+          this.startWave(this.currentWaveIndex + 1);
+        } else {
+          this.finishGame();
+        }
       }
     });
   }
 
-  // Start the next wave after inter-wave breather
-  private startNextWave(): void {
+  // Start a specific wave
+  private startWave(waveIndex: number): void {
     // End inter-wave breather
     this.inInterWave = false;
 
-    // Increment wave
-    this.gameState.waveIndex++;
+    // Set current wave
+    this.currentWaveIndex = waveIndex;
+    this.currentWave = WAVES[waveIndex];
+    this.gameState.waveIndex = waveIndex + 1; // For display (1-based)
 
-    // Scale difficulty for next wave
-    this.currentSpawnMin = Math.round(this.currentSpawnMin * SPAWN_INTERVAL_MULT_PER_WAVE);
-    this.currentSpawnMax = Math.round(this.currentSpawnMax * SPAWN_INTERVAL_MULT_PER_WAVE);
-    this.currentEnemyFireMin = Math.round(this.currentEnemyFireMin * ENEMY_FIRE_RATE_MULT_PER_WAVE);
-    this.currentEnemyFireMax = Math.round(this.currentEnemyFireMax * ENEMY_FIRE_RATE_MULT_PER_WAVE);
-    this.currentAsteroidSpeedBase += ASTEROID_SPEED_ADD_PER_WAVE;
-    this.currentEnemySpeedBase += ENEMY_SPEED_ADD_PER_WAVE;
+    // Stop existing timers
+    this.stopTimers();
+
+    // Start new timers for this wave
+    this.startTimersForWave(this.currentWave);
 
     // Reset wave timer
     this.waveStartTime = this.time.now;
-    this.waveDuration = WAVE1_DURATION_MS + (this.gameState.waveIndex - 1) * WAVE_DURATION_GROWTH_MS;
 
     // Update HUD
     this.updateHUD();
+  }
+
+  // Start timers for the current wave
+  private startTimersForWave(wave: WaveSpec): void {
+    this.asteroidTimer = this.time.addEvent({
+      delay: Phaser.Math.Between(...wave.asteroidSpawnEveryMs),
+      loop: true,
+      callback: () => {
+        if (!this.inInterWave) {
+          const spawnX = GAME_WIDTH + 50;
+          const spawnY = Phaser.Math.Between(EDGE_PADDING, GAME_HEIGHT - EDGE_PADDING);
+          this.spawnAsteroid(spawnX, spawnY);
+        }
+      }
+    });
+
+    this.enemyTimer = this.time.addEvent({
+      delay: Phaser.Math.Between(...wave.enemySpawnEveryMs),
+      loop: true,
+      callback: () => {
+        if (!this.inInterWave) {
+          const spawnX = GAME_WIDTH + 50;
+          const spawnY = Phaser.Math.Between(EDGE_PADDING, GAME_HEIGHT - EDGE_PADDING);
+          this.spawnEnemy(spawnX, spawnY);
+        }
+      }
+    });
+  }
+
+  // Stop all spawn timers
+  private stopTimers(): void {
+    if (this.asteroidTimer) {
+      this.asteroidTimer.remove();
+      this.asteroidTimer = null;
+    }
+    if (this.enemyTimer) {
+      this.enemyTimer.remove();
+      this.enemyTimer = null;
+    }
+  }
+
+  // Finish the game after completing all waves
+  private finishGame(): void {
+    // Get camera center for perfect centering
+    const cx = this.cameras.main.centerX;
+    const cy = this.cameras.main.centerY;
+
+    // Show win overlay - perfectly centered
+    const winTitle = this.add.text(cx, cy - 60, 'DEMO COMPLETE!', {
+      fontSize: '48px',
+      color: '#00ff00',
+      fontStyle: 'bold'
+    });
+    winTitle.setOrigin(0.5, 0.5);
+
+    // Show final score
+    const scoreText = this.add.text(cx, cy, `Final Score: ${this.gameState.score}`, {
+      fontSize: '28px',
+      color: '#ffffff'
+    });
+    scoreText.setOrigin(0.5, 0.5);
+
+    // Show high score
+    const highScore = parseInt(localStorage.getItem('grain_highscore') || '0');
+    const highScoreText = this.add.text(cx, cy + 32, `High Score: ${highScore}`, {
+      fontSize: '24px',
+      color: '#cccccc'
+    });
+    highScoreText.setOrigin(0.5, 0.5);
+
+    // Restart instruction
+    const restartText = this.add.text(cx, cy + 72, 'Press R to Restart', {
+      fontSize: '24px',
+      color: '#ffffff'
+    });
+    restartText.setOrigin(0.5, 0.5);
+
+    // Handle resize to keep centering
+    this.scale.on('resize', () => {
+      const newCx = this.cameras.main.centerX;
+      const newCy = this.cameras.main.centerY;
+      winTitle.setPosition(newCx, newCy - 60);
+      scoreText.setPosition(newCx, newCy);
+      highScoreText.setPosition(newCx, newCy + 32);
+      restartText.setPosition(newCx, newCy + 72);
+    });
   }
 
   // Handle wall damage to prevent safe space camping
@@ -801,14 +922,11 @@ export class SaucerScene extends Phaser.Scene {
     window.dispatchEvent(event);
   }
 
-  // Spawn power-up at given position
-  private spawnPowerUp(x: number, y: number): void {
-    const type = Math.random() < 0.5 ? 'shield' : 'heart';
-    const texture = type === 'shield' ? 'pwr_shield' : 'pwr_heart';
-
+  // Spawn shield power-up at given position (waves 2-3 only)
+  private spawnShieldPowerUp(x: number, y: number): void {
     const powerUp: PowerUp = {
-      sprite: this.physics.add.sprite(x, y, texture),
-      type: type,
+      sprite: this.physics.add.sprite(x, y, 'pwr_shield'),
+      type: 'shield',
       x: x,
       y: y,
     };
@@ -821,13 +939,10 @@ export class SaucerScene extends Phaser.Scene {
     this.powerUps.push(powerUp);
   }
 
-  // Handle power-up pickup
+  // Handle power-up pickup (shields only)
   private handlePowerUpPickup(powerUp: PowerUp): void {
     if (powerUp.type === 'shield') {
       this.activateShield();
-    } else if (powerUp.type === 'heart') {
-      this.gameState.lives = Math.min(this.gameState.lives + 1, MAX_LIVES);
-      this.updateHUD();
     }
 
     // Destroy power-up
