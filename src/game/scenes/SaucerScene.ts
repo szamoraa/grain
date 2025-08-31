@@ -37,6 +37,14 @@ const ENEMY_LASER_DEPTH = 80;      // draw above sprites/starfield
 const POINT_ASTEROID = 100;
 const POINT_ENEMY = 1000;
 
+// Power-ups
+const POWER_UP_SPAWN_CHANCE = 0.05;      // 5% chance on enemy/asteroid destruction
+const SHIELD_DURATION_MS = 5000;          // 5 seconds of invincibility
+const MAX_LIVES = 5;                      // Cap on extra lives
+
+// Inter-wave breather
+const INTER_WAVE_MS = 1500;               // 1.5s pause between waves
+
 // Wave system
 const WAVE1_DURATION_MS = 20000;   // ≈ 20s for Wave 1
 const WAVE_DURATION_GROWTH_MS = 0; // keep constant length for now
@@ -100,6 +108,20 @@ interface Projectile {
   y: number;
 }
 
+// Power-up
+interface PowerUp {
+  sprite: Phaser.GameObjects.Sprite;
+  type: 'shield' | 'heart';
+  x: number;
+  y: number;
+}
+
+// Shield effect
+interface Shield {
+  sprite: Phaser.GameObjects.Sprite;
+  endTime: number;
+}
+
 
 
 // Main game scene - simplified Level 1
@@ -123,6 +145,8 @@ export class SaucerScene extends Phaser.Scene {
   asteroids: Asteroid[] = [];
   projectiles: Projectile[] = [];
   enemyLasers!: Phaser.Physics.Arcade.Group;
+  powerUps: PowerUp[] = [];
+  activeShield?: Shield;
 
   // Background
   starfieldSlow!: Phaser.GameObjects.TileSprite;
@@ -141,6 +165,7 @@ export class SaucerScene extends Phaser.Scene {
   // Wave system
   waveStartTime: number = 0;
   waveDuration: number = WAVE1_DURATION_MS;
+  inInterWave: boolean = false;
 
   // Dynamic difficulty (changes per wave)
   currentSpawnMin: number = SPAWN_MIN_MS;
@@ -200,6 +225,9 @@ export class SaucerScene extends Phaser.Scene {
 
     // Update invulnerability
     this.updateInvulnerability(delta);
+
+    // Update power-ups and shield
+    this.updatePowerUps();
   }
 
   // Initialize simple background
@@ -368,6 +396,11 @@ export class SaucerScene extends Phaser.Scene {
           this.addScore(POINT_ENEMY);
           sfx.boom();
           this.updateHUD();
+
+          // Chance to spawn power-up
+          if (Math.random() < POWER_UP_SPAWN_CHANCE) {
+            this.spawnPowerUp(enemy.sprite.x, enemy.sprite.y);
+          }
         }
       });
     });
@@ -393,6 +426,11 @@ export class SaucerScene extends Phaser.Scene {
           this.addScore(POINT_ASTEROID);
           sfx.boom();
           this.updateHUD();
+
+          // Chance to spawn power-up
+          if (Math.random() < POWER_UP_SPAWN_CHANCE) {
+            this.spawnPowerUp(asteroid.sprite.x, asteroid.sprite.y);
+          }
         }
       });
     });
@@ -508,6 +546,9 @@ export class SaucerScene extends Phaser.Scene {
 
   // Spawn random entity (allows edge spawns to remove safe spaces)
   private spawnEntity(): void {
+    // Don't spawn during inter-wave breather
+    if (this.inInterWave) return;
+
     const spawnX = GAME_WIDTH + 50;
     const spawnY = Phaser.Math.Between(EDGE_PADDING, GAME_HEIGHT - EDGE_PADDING);
 
@@ -690,13 +731,25 @@ export class SaucerScene extends Phaser.Scene {
     });
     banner.setOrigin(0.5, 0.5);
 
-    // Fade out banner after 2 seconds
+    // Start inter-wave breather - pause spawns for 1.5s
+    this.inInterWave = true;
+
+    // Fade out banner after 1.5 seconds and start next wave
     this.tweens.add({
       targets: banner,
       alpha: 0,
-      duration: 2000,
-      onComplete: () => banner.destroy()
+      duration: INTER_WAVE_MS,
+      onComplete: () => {
+        banner.destroy();
+        this.startNextWave();
+      }
     });
+  }
+
+  // Start the next wave after inter-wave breather
+  private startNextWave(): void {
+    // End inter-wave breather
+    this.inInterWave = false;
 
     // Increment wave
     this.gameState.waveIndex++;
@@ -746,6 +799,125 @@ export class SaucerScene extends Phaser.Scene {
       }
     });
     window.dispatchEvent(event);
+  }
+
+  // Spawn power-up at given position
+  private spawnPowerUp(x: number, y: number): void {
+    const type = Math.random() < 0.5 ? 'shield' : 'heart';
+    const texture = type === 'shield' ? 'pwr_shield' : 'pwr_heart';
+
+    const powerUp: PowerUp = {
+      sprite: this.physics.add.sprite(x, y, texture),
+      type: type,
+      x: x,
+      y: y,
+    };
+
+    powerUp.sprite.setScale(0.8);
+    (powerUp.sprite.body as Phaser.Physics.Arcade.Body).setVelocityX(-120 + Math.random() * 80); // -120 to -40
+    (powerUp.sprite.body as Phaser.Physics.Arcade.Body).setVelocityY(Math.random() * 100 - 50); // -50 to 50
+    (powerUp.sprite.body as Phaser.Physics.Arcade.Body).allowGravity = false;
+
+    this.powerUps.push(powerUp);
+  }
+
+  // Handle power-up pickup
+  private handlePowerUpPickup(powerUp: PowerUp): void {
+    if (powerUp.type === 'shield') {
+      this.activateShield();
+    } else if (powerUp.type === 'heart') {
+      this.gameState.lives = Math.min(this.gameState.lives + 1, MAX_LIVES);
+      this.updateHUD();
+    }
+
+    // Destroy power-up
+    powerUp.sprite.destroy();
+    const index = this.powerUps.indexOf(powerUp);
+    if (index > -1) {
+      this.powerUps.splice(index, 1);
+    }
+  }
+
+  // Activate shield power-up
+  private activateShield(): void {
+    // Remove existing shield if any
+    if (this.activeShield) {
+      this.activeShield.sprite.destroy();
+    }
+
+    // Create shield ring
+    const shieldSprite = this.add.sprite(this.player.sprite.x, this.player.sprite.y, 'pwr_shield');
+    shieldSprite.setDepth(10); // Above player
+    shieldSprite.setScale(1.5);
+
+    // Add pulsing animation
+    this.tweens.add({
+      targets: shieldSprite,
+      scale: 1.8,
+      duration: 500,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut'
+    });
+
+    // Set shield data
+    this.activeShield = {
+      sprite: shieldSprite,
+      endTime: this.time.now + SHIELD_DURATION_MS
+    };
+
+    // Set invulnerability
+    this.gameState.invulnerable = true;
+    this.gameState.invulnerabilityTime = this.time.now + SHIELD_DURATION_MS;
+
+    // Add blinking effect to player
+    this.startPlayerBlink();
+  }
+
+  // Start player blinking effect
+  private startPlayerBlink(): void {
+    this.tweens.add({
+      targets: this.player.sprite,
+      alpha: 0.3,
+      duration: 200,
+      yoyo: true,
+      repeat: Math.floor(SHIELD_DURATION_MS / 400) - 1, // Blink for duration
+      onComplete: () => {
+        this.player.sprite.setAlpha(1); // Reset alpha
+      }
+    });
+  }
+
+  // Update power-ups and shield
+  private updatePowerUps(): void {
+    // Update power-up positions and cleanup offscreen
+    this.powerUps = this.powerUps.filter(powerUp => {
+      if (powerUp.sprite.x < -50 || powerUp.sprite.y < -50 || powerUp.sprite.y > GAME_HEIGHT + 50) {
+        powerUp.sprite.destroy();
+        return false;
+      }
+
+      // Check collision with player
+      if (Phaser.Geom.Intersects.RectangleToRectangle(
+        powerUp.sprite.getBounds(),
+        this.player.sprite.getBounds()
+      )) {
+        this.handlePowerUpPickup(powerUp);
+        return false;
+      }
+
+      return true;
+    });
+
+    // Update shield position and expiration
+    if (this.activeShield) {
+      this.activeShield.sprite.setPosition(this.player.sprite.x, this.player.sprite.y);
+
+      if (this.time.now >= this.activeShield.endTime) {
+        this.activeShield.sprite.destroy();
+        this.activeShield = undefined;
+      }
+    }
   }
 
 }

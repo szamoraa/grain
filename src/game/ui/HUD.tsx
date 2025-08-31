@@ -112,38 +112,31 @@ export default function HUD() {
 
   return (
     <div className="absolute inset-0 pointer-events-none">
-      {/* Progress Bar - Very top */}
-      <div className="absolute top-0 left-0 right-0 bg-black/20">
+      {/* Progress Bar - Very top, centered with animated sheen */}
+      <div className="absolute top-0 left-1/2 transform -translate-x-1/2 w-96 h-2 bg-black/30 rounded-full overflow-hidden">
         <div
-          className="bg-gradient-to-r from-green-400 to-blue-500 h-2 transition-all duration-200"
+          className="bg-gradient-to-r from-green-400 via-blue-400 to-cyan-400 h-full transition-all duration-300 ease-out relative overflow-hidden"
           style={{ width: `${hudState.progress * 100}%` }}
-        />
+        >
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent animate-sheen"></div>
+        </div>
       </div>
 
       {/* Top HUD */}
       <div className="absolute top-2 left-0 right-0 p-4 flex justify-between items-start pointer-events-auto">
-        {/* Lives and Score */}
-        <div className="flex flex-col space-y-2">
-          <div className="flex space-x-2">
-            {renderLives()}
-          </div>
-          <div className="bg-black bg-opacity-70 px-3 py-1 rounded text-white font-bold">
+        {/* Lives */}
+        <div className="flex space-x-2">
+          {renderLives()}
+        </div>
+
+        {/* Score and Wave - Top Right */}
+        <div className="text-right">
+          <div className="bg-black bg-opacity-70 px-3 py-1 rounded text-white font-bold mb-1">
             SCORE: {hudState.score}
           </div>
-        </div>
-
-        {/* Wave */}
-        <div className="bg-black bg-opacity-70 px-4 py-2 rounded text-white font-bold text-lg">
-          WAVE {hudState.waveIndex}
-        </div>
-      </div>
-
-      {/* Bottom HUD */}
-      <div className="absolute bottom-0 left-0 right-0 p-4 flex justify-between items-end pointer-events-auto">
-        {/* Stats */}
-        <div className="bg-black bg-opacity-70 px-4 py-2 rounded text-white text-sm">
-          <div>Ships: {hudState.enemyKills}</div>
-          <div>Rocks: {hudState.asteroidKills}</div>
+          <div className="bg-black bg-opacity-70 px-3 py-1 rounded text-white font-bold text-sm">
+            WAVE {hudState.waveIndex}
+          </div>
         </div>
       </div>
 
@@ -153,9 +146,8 @@ export default function HUD() {
           <div className="text-center text-white">
             <h2 className="text-5xl font-bold mb-6 text-red-400">GAME OVER</h2>
 
-            <div className="mb-8 space-y-3 text-xl">
-              <p>Ships Destroyed: {hudState.enemyKills}</p>
-              <p>Rocks Destroyed: {hudState.asteroidKills}</p>
+            <div className="mb-8 text-xl">
+              <p>Final Score: {hudState.score}</p>
             </div>
 
             <div className="space-y-4">

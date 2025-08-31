@@ -168,8 +168,30 @@ export class BootScene extends Phaser.Scene {
     enemyLaserGraphics.fillRoundedRect(0, 0, 18, 6, 3);
     enemyLaserGraphics.fillStyle(0xff3b3b, 1);
     enemyLaserGraphics.fillRoundedRect(2, 1, 14, 4, 2);
-    enemyLaserGraphics.generateTexture("enemyLaser", 18, 6);
+    enemyLaserGraphics.generateTexture('enemyLaser', 18, 6);
     enemyLaserGraphics.destroy();
+
+    // SHIELD POWER-UP (cyan ring)
+    const shieldGraphics = this.add.graphics({ x: 0, y: 0 });
+    shieldGraphics.lineStyle(3, 0x53e3ff, 1);
+    shieldGraphics.strokeCircle(12, 12, 10);
+    shieldGraphics.generateTexture('pwr_shield', 24, 24);
+    shieldGraphics.destroy();
+
+    // HEART POWER-UP (+1 life) - Simple cross shape
+    const heartGraphics = this.add.graphics({ x: 0, y: 0 });
+    heartGraphics.fillStyle(0xff6b9d, 1);
+
+    // Simple heart shape using basic shapes
+    // Top curves
+    heartGraphics.fillCircle(8, 10, 5);
+    heartGraphics.fillCircle(16, 10, 5);
+
+    // Bottom triangle
+    heartGraphics.fillTriangle(6, 12, 18, 12, 12, 22);
+
+    heartGraphics.generateTexture('pwr_heart', 24, 24);
+    heartGraphics.destroy();
 
     // PLAYER LASER (blue) — if not already present
     if (!this.textures.exists("playerLaser")) {

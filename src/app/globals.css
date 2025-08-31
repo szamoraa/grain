@@ -24,3 +24,13 @@ html, body {
   color: #e5e7eb;        /* neutral-200 for general text */
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Progress bar sheen animation */
+@keyframes sheen {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.animate-sheen {
+  animation: sheen 2s ease-in-out infinite;
+}
