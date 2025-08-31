@@ -20,8 +20,9 @@
 }
 
 html, body {
-  background: #0e0f12;   /* off-black */
-  color: #e5e7eb;        /* neutral-200 for general text */
+  background: #0E0F12;   /* off-black UI */
+  color: #E5E7EB;        /* neutral-200 for general text */
+  min-height: 100%;
   font-family: Arial, Helvetica, sans-serif;
 }
 

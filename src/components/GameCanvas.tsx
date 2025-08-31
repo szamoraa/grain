@@ -58,22 +58,25 @@ function GameCanvasInner({ gameKey, width = 360, height = 640, className = '' }:
   }, [gameKey, width, height]);
 
   return (
-    <div
-      ref={containerRef}
-      className={`game-canvas-container ${className}`}
-      style={{
-        width: '100%',
-        maxWidth: '1800px', // Wider max width
-        aspectRatio: '1600/720', // Fixed 16:7.2 aspect ratio
-        backgroundColor: '#000000',
-        borderRadius: '24px', // Larger rounded corners
-        overflow: 'hidden',
-        position: 'relative',
-        boxShadow: '0 10px 40px rgba(0, 0, 0, 0.35)', // Soft shadow
-        border: '1px solid rgba(255, 255, 255, 0.06)', // Subtle border
-      }}
-    >
-      {/* Game canvas will be inserted here by Phaser */}
+    <div className="w-full flex justify-center">
+      {/* Frame that matches spec; scales down on small screens, keeps aspect 1243/707 */}
+      <div
+        ref={containerRef}
+        className={`
+          game-canvas-container ${className}
+          relative
+          aspect-[1243/707]
+          w-[min(1243px,92vw)]
+          max-w-[1243px]
+          rounded-[30px]
+          border border-[#616677]
+          bg-black
+          overflow-hidden
+          shadow-[0_10px_40px_rgba(0,0,0,0.35)]
+        `}
+      >
+        {/* Game canvas will be inserted here by Phaser */}
+      </div>
     </div>
   );
 }
