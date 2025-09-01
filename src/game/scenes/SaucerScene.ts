@@ -22,8 +22,8 @@ type WaveSpec = {
 const WAVES: WaveSpec[] = [
   // Wave 1 – unchanged
   { durationMs: WAVE1_DURATION_MS, enemyFireEveryMsMul: 1.0, extraEnemyCap: 0, asteroidSpawnMul: 1.0 },
-  // Wave 2 – same length, ~10% harder
-  { durationMs: WAVE1_DURATION_MS, enemyFireEveryMsMul: 0.85, extraEnemyCap: 2, asteroidSpawnMul: 1.0 },
+  // Wave 2 – same length, ~20% harder
+  { durationMs: WAVE1_DURATION_MS, enemyFireEveryMsMul: 0.8, extraEnemyCap: 1, asteroidSpawnMul: 1.0 },
 ];
 const LASER_SPEED = 900;          // Laser projectile speed
 
@@ -52,11 +52,9 @@ const POINT_ENEMY = 200;     // 200 points per enemy
 // Power-ups
 const SHIELD_DURATION_MS = 5000;          // 5 seconds of invincibility
 
-// Inter-wave breather
-const INTER_WAVE_MS = 1500;               // 1.5s pause between waves
-
-// Wave system constants (defined above)
+// Wave system constants
 const SHOW_COMPLETE_BANNER_MS = 1200; // brief pause before restart option
+const INTER_WAVE_MS = 1200; // 1.2s quiet gap between waves
 const ASTEROID_SPAWN_MIN_MS = 700;
 const ASTEROID_SPAWN_MAX_MS = 1000;
 const ENEMY_SPAWN_MIN_MS = 1300;
@@ -195,6 +193,12 @@ export class SaucerScene extends Phaser.Scene {
   spawningEnabled = true;
   inInterWave = false;
 
+  // Power-ups
+  powerups!: Phaser.Physics.Arcade.Group;
+  shieldActive = false;
+  shieldTimer?: Phaser.Time.TimerEvent;
+  shieldRing?: Phaser.GameObjects.Image;
+
   // Spawn timers
   asteroidTimer: Phaser.Time.TimerEvent | null = null;
   enemyTimer: Phaser.Time.TimerEvent | null = null;
@@ -236,16 +240,21 @@ export class SaucerScene extends Phaser.Scene {
     this.spawningEnabled = false;
 
     // Show completion banner
-    this.showCenterBanner(`Wave ${this.currentWaveIndex + 1} Complete`, 1000);
+    this.showCenterBanner(`Wave ${this.currentWaveIndex + 1} Complete`, 700);
 
-    // After breather, either start next wave or finish
-    this.time.delayedCall(1000, () => {
+    // After inter-wave break, either start next wave or finish
+    this.time.delayedCall(INTER_WAVE_MS, () => {
       this.inInterWave = false;
 
       if (this.currentWaveIndex + 1 < WAVES.length) {
-        // Wave 2 start: re-enable spawns
-        this.spawningEnabled = true;
-        this.startWave(this.currentWaveIndex + 1);
+        // Wave 2 incoming banner
+        this.showCenterBanner(`Wave ${this.currentWaveIndex + 2} incoming...`, 700);
+
+        // Brief delay then start next wave
+        this.time.delayedCall(700, () => {
+          this.spawningEnabled = true;
+          this.startWave(this.currentWaveIndex + 1);
+        });
       } else {
         // No more waves -> mission complete
         this.finishMission();
@@ -305,6 +314,13 @@ export class SaucerScene extends Phaser.Scene {
     this.initializePlayer();
     this.setupInput();
     this.initializeEnemyLasers();
+
+    // Initialize power-ups
+    this.powerups = this.physics.add.group({
+      maxSize: 8,
+      allowGravity: false
+    });
+    this.physics.add.overlap(this.player.sprite, this.powerups, this.onPickup, undefined, this);
 
     // Initialize HUD
     this.hud = new HUDLayer(this);
@@ -552,6 +568,18 @@ export class SaucerScene extends Phaser.Scene {
 
   // Handle player taking damage
   private playerHit(): void {
+    // Check if shield is active - ignore damage if so
+    if (this.shieldActive) {
+      // Optional: brief flash effect when shielded
+      this.player.sprite.setTint(0xffffff);
+      this.time.delayedCall(100, () => {
+        if (this.player.sprite.active) {
+          this.player.sprite.clearTint();
+        }
+      });
+      return;
+    }
+
     this.gameState.lives--;
     this.gameState.invulnerable = true;
     this.gameState.invulnerabilityTime = INVULN_MS;
@@ -849,6 +877,94 @@ export class SaucerScene extends Phaser.Scene {
     if (this.hud) {
       this.hud.destroy();
     }
+    // Clean up shield timer
+    if (this.shieldTimer) {
+      this.shieldTimer.remove();
+    }
+  }
+
+  // Power-up methods
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private onPickup = (_player: any, pu: any) => {
+    if (!pu.active || pu.getData('taken')) return;
+    pu.setData('taken', true);
+    const kind = pu.getData('kind');
+    pu.disableBody(true, true);
+
+    if (kind === 'shield') this.activateShield(SHIELD_DURATION_MS);
+    if (kind === 'life') this.addLife(1);
+  };
+
+  private spawnPowerup(x: number, y: number, kind: 'shield' | 'life') {
+    const key = kind === 'shield' ? 'pwr_shield' : 'pwr_life';
+    const pu = this.powerups.get(x, y, key) as Phaser.Physics.Arcade.Sprite;
+    if (!pu) return;
+
+    pu.setActive(true).setVisible(true);
+    pu.setData('kind', kind).setData('taken', false);
+    this.physics.world.enable(pu);
+    if (pu.body) {
+      (pu.body as Phaser.Physics.Arcade.Body).setAllowGravity(false);
+    }
+    pu.setDepth(9999);
+
+    // Gentle drift left with bob
+    const vx = Phaser.Math.Between(-160, -120);
+    pu.setVelocity(vx, 0);
+    this.tweens.add({
+      targets: pu,
+      y: y + 8,
+      duration: 900,
+      yoyo: true,
+      repeat: -1,
+      ease: 'sine.inOut'
+    });
+
+    // Cleanup if offscreen too far
+    this.time.delayedCall(6000, () => {
+      if (pu.active) pu.disableBody(true, true);
+    });
+  }
+
+  private maybeDropFromBigAsteroid(x: number, y: number) {
+    const roll = Math.random();
+    if (roll < 0.10) return this.spawnPowerup(x, y, 'shield'); // 10%
+    if (roll < 0.15) return this.spawnPowerup(x, y, 'life');   // next 5%
+  }
+
+  // Shield mechanics
+  private activateShield(ms: number) {
+    if (this.shieldTimer) this.shieldTimer.remove(false);
+
+    if (!this.shieldActive) {
+      this.shieldActive = true;
+      // Visuals: ring that follows player
+      this.shieldRing = this.add.image(this.player.sprite.x, this.player.sprite.y, 'pwr_shield')
+        .setDepth(9998)
+        .setAlpha(0.9);
+
+      this.tweens.add({
+        targets: this.shieldRing,
+        scale: { from: 1.0, to: 1.12 },
+        alpha: { from: 0.9, to: 0.75 },
+        duration: 600,
+        yoyo: true,
+        repeat: -1,
+        ease: 'sine.inOut',
+      });
+    }
+
+    // Refresh timer
+    this.shieldTimer = this.time.delayedCall(ms, () => {
+      this.shieldActive = false;
+      this.shieldRing?.destroy();
+      this.shieldRing = undefined;
+    });
+  }
+
+  private addLife(amount: number) {
+    this.gameState.lives = Math.min(this.gameState.lives + amount, 5);
+    this.hud?.setLives(this.gameState.lives);
   }
 
   // Start spawn timers for single wave
@@ -857,7 +973,7 @@ export class SaucerScene extends Phaser.Scene {
       delay: Phaser.Math.Between(ASTEROID_SPAWN_MIN_MS, ASTEROID_SPAWN_MAX_MS),
       loop: true,
       callback: () => {
-        if (this.spawningEnabled) {
+        if (this.spawningEnabled && !this.inInterWave) {
           const spawnX = GAME_WIDTH + 50;
           const spawnY = Phaser.Math.Between(EDGE_PADDING, GAME_HEIGHT - EDGE_PADDING);
           this.spawnAsteroid(spawnX, spawnY);
@@ -869,7 +985,7 @@ export class SaucerScene extends Phaser.Scene {
       delay: Phaser.Math.Between(ENEMY_SPAWN_MIN_MS, ENEMY_SPAWN_MAX_MS),
       loop: true,
       callback: () => {
-        if (this.spawningEnabled) {
+        if (this.spawningEnabled && !this.inInterWave) {
           // Check enemy cap before spawning
           const baseCap = 3; // your existing enemy cap
           const extra = this.data.get('extraEnemyCap') ?? 0;
@@ -950,6 +1066,9 @@ export class SaucerScene extends Phaser.Scene {
     if (isBigAsteroid) {
       // Split big asteroid into smaller ones
       this.splitAsteroid(ast.x, ast.y);
+
+      // Chance to drop power-up from big asteroid kill
+      this.maybeDropFromBigAsteroid(ast.x, ast.y);
     }
 
     ast.destroy(); // remove from scene
@@ -1025,7 +1144,7 @@ export class SaucerScene extends Phaser.Scene {
   // Handle power-up pickup (shields only)
   private handlePowerUpPickup(powerUp: PowerUp): void {
     if (powerUp.type === 'shield') {
-      this.activateShield();
+      this.activateShield(SHIELD_DURATION_MS);
     }
 
     // Destroy power-up
@@ -1036,86 +1155,22 @@ export class SaucerScene extends Phaser.Scene {
     }
   }
 
-  // Activate shield power-up
-  private activateShield(): void {
-    // Remove existing shield if any
-    if (this.activeShield) {
-      this.activeShield.sprite.destroy();
-    }
 
-    // Create shield ring
-    const shieldSprite = this.add.sprite(this.player.sprite.x, this.player.sprite.y, 'pwr_shield');
-    shieldSprite.setDepth(10); // Above player
-    shieldSprite.setScale(1.5);
-
-    // Add pulsing animation
-    this.tweens.add({
-      targets: shieldSprite,
-      scale: 1.8,
-      duration: 500,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut'
-    });
-
-    // Set shield data
-    this.activeShield = {
-      sprite: shieldSprite,
-      endTime: this.time.now + SHIELD_DURATION_MS
-    };
-
-    // Set invulnerability
-    this.gameState.invulnerable = true;
-    this.gameState.invulnerabilityTime = this.time.now + SHIELD_DURATION_MS;
-
-    // Add blinking effect to player
-    this.startPlayerBlink();
-  }
-
-  // Start player blinking effect
-  private startPlayerBlink(): void {
-    this.tweens.add({
-      targets: this.player.sprite,
-      alpha: 0.3,
-      duration: 200,
-      yoyo: true,
-      repeat: Math.floor(SHIELD_DURATION_MS / 400) - 1, // Blink for duration
-      onComplete: () => {
-        this.player.sprite.setAlpha(1); // Reset alpha
-      }
-    });
-  }
 
   // Update power-ups and shield
   private updatePowerUps(): void {
-    // Update power-up positions and cleanup offscreen
-    this.powerUps = this.powerUps.filter(powerUp => {
-      if (powerUp.sprite.x < -50 || powerUp.sprite.y < -50 || powerUp.sprite.y > GAME_HEIGHT + 50) {
-        powerUp.sprite.destroy();
-        return false;
-      }
-
-      // Check collision with player
-      if (Phaser.Geom.Intersects.RectangleToRectangle(
-        powerUp.sprite.getBounds(),
-        this.player.sprite.getBounds()
-      )) {
-        this.handlePowerUpPickup(powerUp);
-        return false;
-      }
-
-      return true;
-    });
-
-    // Update shield position and expiration
-    if (this.activeShield) {
-      this.activeShield.sprite.setPosition(this.player.sprite.x, this.player.sprite.y);
-
-      if (this.time.now >= this.activeShield.endTime) {
-        this.activeShield.sprite.destroy();
-        this.activeShield = undefined;
-      }
+    // Update shield ring position to follow player
+    if (this.shieldRing && this.shieldActive) {
+      this.shieldRing.setPosition(this.player.sprite.x, this.player.sprite.y);
     }
+
+    // Update power-up cleanup (disable offscreen powerups)
+    this.powerups.children.each((pu: Phaser.GameObjects.GameObject) => {
+      if (pu.active && (pu as Phaser.GameObjects.Sprite).x < -50) {
+        (pu as Phaser.Physics.Arcade.Sprite).disableBody(true, true);
+      }
+      return null;
+    });
   }
 
 }
