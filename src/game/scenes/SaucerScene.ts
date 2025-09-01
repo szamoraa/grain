@@ -37,8 +37,9 @@ const SHIELD_DURATION_MS = 5000;          // 5 seconds of invincibility
 // Inter-wave breather
 const INTER_WAVE_MS = 1500;               // 1.5s pause between waves
 
-// Single wave system - 20s mission
-const WAVE_DURATION_MS = 20000; // ~20s
+// Single wave system - Wave 1 (20s)
+const WAVE1_DURATION_MS = 20000; // ~20s
+const SHOW_COMPLETE_BANNER_MS = 1200; // brief pause before restart option
 const ASTEROID_SPAWN_MIN_MS = 700;
 const ASTEROID_SPAWN_MAX_MS = 1000;
 const ENEMY_SPAWN_MIN_MS = 1300;
@@ -49,12 +50,20 @@ const ENEMY_SPEED_BASE = 280;
 const ENEMY_FIRE_MIN_MS = 1000;
 const ENEMY_FIRE_MAX_MS = 1500;
 
+// Bullet system - extended reach
+const BULLET_TTL_MS = 2000; // 2s to reach right edge
+const BULLET_CLEANUP_MARGIN = 100; // extra margin beyond camera width
+
 // Size-based asteroid speed modifiers
 const ASTEROID_SIZE_SPEED_MOD = (scale: number): number => {
   // Large (1.4) → slower; small (0.6) → faster
-  // scale 0.6 → +80, 1.0 → 0, 1.4 → -70
+  // scale 0.6 → +100, 1.0 → 0, 1.4 → -80
   return Math.round((1.0 - scale) * 200); // linear mapping
 };
+
+// Asteroid splitting - big asteroids split into smaller ones
+const SPLIT_COUNT = 3; // number of small asteroids from one big
+const SMALL_SCALE = 0.6; // scale for split asteroids
 
 // Wave bonus
 const WAVE_CLEAR_BONUS = 1000;              // score on wave complete
@@ -162,7 +171,7 @@ export class SaucerScene extends Phaser.Scene {
   lastShotTime: number = 0;
   lastWallTickAt: number = 0;
 
-  // Single wave system
+  // Single wave system - Wave 1
   waveStartTime: number = 0;
   missionEnded: boolean = false;
   spawningEnabled: boolean = true;
@@ -182,7 +191,7 @@ export class SaucerScene extends Phaser.Scene {
     this.setupInput();
     this.initializeEnemyLasers();
 
-    // Initialize single wave system
+    // Initialize single wave system - Wave 1
     this.waveStartTime = this.time.now;
     this.spawningEnabled = true;
     this.missionEnded = false;
@@ -363,8 +372,8 @@ export class SaucerScene extends Phaser.Scene {
       projectile.x += LASER_SPEED * dt;
       projectile.sprite.x = projectile.x;
 
-      // Remove if off-screen
-      if (projectile.x > GAME_WIDTH + 50) {
+      // Remove if off-screen (extended margin to ensure visual reach)
+      if (projectile.x > GAME_WIDTH + BULLET_CLEANUP_MARGIN) {
         this.spendBullet(projectile.sprite);
         this.projectiles.splice(index, 1);
       }
@@ -536,7 +545,7 @@ export class SaucerScene extends Phaser.Scene {
       wobbleOffset: Math.random() * Math.PI * 2,
     };
 
-    enemy.sprite.setScale(0.7);
+    enemy.sprite.setScale(0.7 * 2.0); // 200% larger
     this.scheduleEnemyFire(enemy.sprite);
     this.enemies.push(enemy);
   }
@@ -595,8 +604,8 @@ export class SaucerScene extends Phaser.Scene {
     projectile.sprite.setScale(0.8);
     this.projectiles.push(projectile);
 
-    // Auto-timeout bullet after 1.2 seconds to prevent stuck projectiles
-    this.time.delayedCall(1200, () => this.spendBullet(projectile.sprite));
+    // Auto-timeout bullet after 2 seconds to ensure it reaches right edge
+    this.time.delayedCall(BULLET_TTL_MS, () => this.spendBullet(projectile.sprite));
 
     sfx.laser();
   }
@@ -681,30 +690,30 @@ export class SaucerScene extends Phaser.Scene {
   // Update single wave system
   private updateWaveSystem(time: number): void {
     const elapsed = time - this.waveStartTime;
-    this.gameState.progress = Phaser.Math.Clamp(elapsed / WAVE_DURATION_MS, 0, 1);
+    this.gameState.progress = Phaser.Math.Clamp(elapsed / WAVE1_DURATION_MS, 0, 1);
 
-    // Check for mission completion
-    if (!this.missionEnded && elapsed >= WAVE_DURATION_MS) {
-      this.endMission();
+    // Check for wave completion
+    if (!this.missionEnded && elapsed >= WAVE1_DURATION_MS) {
+      this.endWave();
     }
 
     // Emit progress update for HUD
     this.events.emit('hud:progress', this.gameState.progress);
   }
 
-  // End the mission
-  private endMission(): void {
+  // End the wave
+  private endWave(): void {
     this.missionEnded = true;
     this.spawningEnabled = false;
 
     // Stop future spawns
     this.stopTimers();
 
-    // Show centered "MISSION COMPLETE" banner
+    // Show centered "FIRST WAVE COMPLETED" banner
     const cx = this.cameras.main.centerX;
     const cy = this.cameras.main.centerY;
 
-    const title = this.add.text(cx, cy - 20, 'MISSION COMPLETE', {
+    const title = this.add.text(cx, cy - 20, 'FIRST WAVE COMPLETED', {
       fontFamily: 'monospace',
       fontSize: '48px',
       color: '#33ff99'
@@ -802,15 +811,52 @@ export class SaucerScene extends Phaser.Scene {
     this.events.emit('hud:score', this.gameState.score);
   }
 
-  // Idempotent asteroid destruction
+  // Idempotent asteroid destruction with splitting
   private killAsteroid(ast: Phaser.GameObjects.Sprite): void {
     if (!ast.active || ast.getData('dead')) return;
     ast.setData('dead', true);
+
+    const asteroidScale = ast.scale;
+    const isBigAsteroid = asteroidScale >= 1.3; // big asteroids split
+
+    if (isBigAsteroid) {
+      // Split big asteroid into smaller ones
+      this.splitAsteroid(ast.x, ast.y);
+    }
+
     ast.destroy(); // remove from scene
     this.createExplosion(ast.x, ast.y);
     this.gameState.asteroidKills++;
     this.awardScore(100, 'asteroid');
     this.updateHUD();
+  }
+
+  // Split big asteroid into smaller asteroids
+  private splitAsteroid(x: number, y: number): void {
+    for (let i = 0; i < SPLIT_COUNT; i++) {
+      const angle = (i / SPLIT_COUNT) * Math.PI * 2 + Math.random() * 0.5 - 0.25;
+      const distance = 20 + Math.random() * 30;
+
+      const splitX = x + Math.cos(angle) * distance;
+      const splitY = y + Math.sin(angle) * distance;
+
+      this.spawnSmallAsteroid(splitX, splitY);
+    }
+  }
+
+  // Spawn small asteroid (for splitting)
+  private spawnSmallAsteroid(x: number, y: number): void {
+    const speed = ASTEROID_SPEED_BASE + ASTEROID_SIZE_SPEED_MOD(SMALL_SCALE) + Phaser.Math.Between(-30, 30);
+
+    const asteroid: Asteroid = {
+      sprite: this.physics.add.sprite(x, y, 'asteroid'),
+      x: x,
+      y: y,
+      speed: speed,
+    };
+
+    asteroid.sprite.setScale(SMALL_SCALE);
+    this.asteroids.push(asteroid);
   }
 
   // Idempotent enemy destruction

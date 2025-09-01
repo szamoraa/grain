@@ -65,7 +65,7 @@ function GameCanvasInner({ gameKey, width = 360, height = 640, className = '' }:
         className={`
           game-canvas-container ${className}
           relative
-          aspect-[1243/707]
+          aspect-[1243/551]
           w-[min(1243px,92vw)]
           max-w-[1243px]
           rounded-[30px]
