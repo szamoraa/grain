@@ -8,6 +8,23 @@ import { HUDLayer } from '../ui/HUDLayer';
 const PLAYER_X = 140;             // Fixed X anchor for player
 const PLAYER_SPEED = 380;         // Vertical speed in px/s
 const LASER_COOLDOWN_MS = 140;    // Laser fire rate
+
+// Wave system constants
+const WAVE1_DURATION_MS = 40000;  // keep as-is
+
+type WaveSpec = {
+  durationMs: number;
+  enemyFireEveryMsMul: number; // 1.0 = baseline; lower = faster fire
+  extraEnemyCap: number;       // additional concurrent enemies allowed
+  asteroidSpawnMul: number;    // 1.0 keeps same density
+};
+
+const WAVES: WaveSpec[] = [
+  // Wave 1 – unchanged
+  { durationMs: WAVE1_DURATION_MS, enemyFireEveryMsMul: 1.0, extraEnemyCap: 0, asteroidSpawnMul: 1.0 },
+  // Wave 2 – same length, ~10% harder
+  { durationMs: WAVE1_DURATION_MS, enemyFireEveryMsMul: 0.85, extraEnemyCap: 2, asteroidSpawnMul: 1.0 },
+];
 const LASER_SPEED = 900;          // Laser projectile speed
 
 // Spawn settings are now wave-specific in WAVES array
@@ -38,8 +55,7 @@ const SHIELD_DURATION_MS = 5000;          // 5 seconds of invincibility
 // Inter-wave breather
 const INTER_WAVE_MS = 1500;               // 1.5s pause between waves
 
-// Single wave system - Wave 1 (40s)
-const WAVE1_DURATION_MS = 40000; // ~40s (doubled)
+// Wave system constants (defined above)
 const SHOW_COMPLETE_BANNER_MS = 1200; // brief pause before restart option
 const ASTEROID_SPAWN_MIN_MS = 700;
 const ASTEROID_SPAWN_MAX_MS = 1000;
@@ -172,10 +188,12 @@ export class SaucerScene extends Phaser.Scene {
   lastShotTime: number = 0;
   lastWallTickAt: number = 0;
 
-  // Single wave system - Wave 1
-  waveStartTime: number = 0;
-  missionEnded: boolean = false;
-  spawningEnabled: boolean = true;
+  // Multi-wave system
+  currentWaveIndex = 0;
+  waveStartTime = 0;
+  missionEnded = false;
+  spawningEnabled = true;
+  inInterWave = false;
 
   // Spawn timers
   asteroidTimer: Phaser.Time.TimerEvent | null = null;
@@ -186,6 +204,99 @@ export class SaucerScene extends Phaser.Scene {
 
   constructor() {
     super({ key: 'SaucerScene' });
+  }
+
+  // Wave management functions
+  private startWave(i: number) {
+    this.currentWaveIndex = i;
+    const spec = WAVES[i];
+
+    // Reset wave timer & progress bar
+    this.waveStartTime = this.time.now;
+    this.events.emit('hud:progress', 0); // ensures HUD resets to 0
+
+    // Tell HUD: "Wave 1"/"Wave 2"
+    this.events.emit('hud:wave', i + 1);
+
+    // Apply wave-specific settings
+    this.data.set('enemyFireMul', spec.enemyFireEveryMsMul);
+    this.data.set('extraEnemyCap', spec.extraEnemyCap);
+    this.data.set('asteroidSpawnMul', spec.asteroidSpawnMul);
+
+    // Show brief wave intro banner for Wave 2
+    if (i > 0) {
+      this.showCenterBanner(`Wave ${i + 1}`, 700);
+    }
+  }
+
+  private endWave() {
+    this.inInterWave = true;
+
+    // Stop scheduling NEW spawns (do not delete existing objects)
+    this.spawningEnabled = false;
+
+    // Show completion banner
+    this.showCenterBanner(`Wave ${this.currentWaveIndex + 1} Complete`, 1000);
+
+    // After breather, either start next wave or finish
+    this.time.delayedCall(1000, () => {
+      this.inInterWave = false;
+
+      if (this.currentWaveIndex + 1 < WAVES.length) {
+        // Wave 2 start: re-enable spawns
+        this.spawningEnabled = true;
+        this.startWave(this.currentWaveIndex + 1);
+      } else {
+        // No more waves -> mission complete
+        this.finishMission();
+      }
+    });
+  }
+
+  private showCenterBanner(text: string, duration: number) {
+    const cx = this.cameras.main.centerX;
+    const cy = this.cameras.main.centerY;
+
+    const banner = this.add.text(cx, cy, text, {
+      fontFamily: 'monospace',
+      fontSize: '32px',
+      color: '#33ff99',
+      align: 'center'
+    }).setOrigin(0.5).setDepth(1000);
+
+    // Fade out after duration
+    this.tweens.add({
+      targets: banner,
+      alpha: 0,
+      duration: 300,
+      delay: duration - 300,
+      onComplete: () => banner.destroy()
+    });
+  }
+
+  private finishMission() {
+    // Reuse existing mission complete flow
+    this.missionEnded = true;
+    this.spawningEnabled = false;
+
+    // Show mission complete banner
+    const cx = this.cameras.main.centerX;
+    const cy = this.cameras.main.centerY;
+
+    const title = this.add.text(cx, cy - 20, 'MISSION COMPLETE', {
+      fontFamily: 'monospace',
+      fontSize: '48px',
+      color: '#33ff99'
+    }).setOrigin(0.5);
+
+    const sub = this.add.text(cx, cy + 28, 'Press R to Restart', {
+      fontFamily: 'monospace',
+      fontSize: '18px',
+      color: '#ffffff'
+    }).setOrigin(0.5);
+
+    // Handle restart
+    this.input.keyboard?.once('keydown-R', () => this.scene.restart());
   }
 
   create(): void {
@@ -200,11 +311,9 @@ export class SaucerScene extends Phaser.Scene {
     this.hud.setLives(this.gameState.lives);
     this.hud.setScore(this.gameState.score);
 
-    // Initialize single wave system - Wave 1
-    this.waveStartTime = this.time.now;
+    // Initialize multi-wave system - start Wave 1
+    this.startWave(0); // start Wave 1 exactly as before
     this.spawningEnabled = true;
-    this.missionEnded = false;
-    this.gameState.waveIndex = 1; // Show "Wave 1"
     this.startSpawnTimers();
   }
 
@@ -540,7 +649,13 @@ export class SaucerScene extends Phaser.Scene {
     if (Math.random() < ASTEROID_CHANCE) {
       this.spawnAsteroid(spawnX, spawnY);
     } else {
-      this.spawnEnemy(spawnX, spawnY);
+      // Check enemy cap before spawning
+      const baseCap = 3; // your existing enemy cap
+      const extra = this.data.get('extraEnemyCap') ?? 0;
+      const cap = baseCap + extra;
+      if (this.enemies.length < cap) {
+        this.spawnEnemy(spawnX, spawnY);
+      }
     }
   }
 
@@ -561,7 +676,12 @@ export class SaucerScene extends Phaser.Scene {
 
   // Schedule enemy fire
   private scheduleEnemyFire(enemy: Phaser.GameObjects.Sprite): void {
-    enemy.setData('nextFireAt', this.time.now + Phaser.Math.Between(ENEMY_FIRE_MIN_MS, ENEMY_FIRE_MAX_MS));
+    const mul = this.data.get('enemyFireMul') ?? 1.0;
+    const nextDelay = Phaser.Math.Between(
+      Math.round(ENEMY_FIRE_MIN_MS * mul),
+      Math.round(ENEMY_FIRE_MAX_MS * mul)
+    );
+    enemy.setData('nextFireAt', this.time.now + nextDelay);
   }
 
   // Spawn asteroid with variable size
@@ -707,51 +827,22 @@ export class SaucerScene extends Phaser.Scene {
     this.updateHUD();
   }
 
-  // Update single wave system
+  // Update multi-wave system
   private updateWaveSystem(time: number): void {
+    const spec = WAVES[this.currentWaveIndex];
     const elapsed = time - this.waveStartTime;
-    this.gameState.progress = Phaser.Math.Clamp(elapsed / WAVE1_DURATION_MS, 0, 1);
+    const progress = Phaser.Math.Clamp(elapsed / spec.durationMs, 0, 1);
 
     // Update HUD progress
-    this.hud.drawProgress(this.gameState.progress);
+    this.hud.drawProgress(progress);
 
     // Check for wave completion
-    if (!this.missionEnded && elapsed >= WAVE1_DURATION_MS) {
+    if (!this.inInterWave && progress >= 1) {
       this.endWave();
     }
   }
 
-  // End the wave
-  private endWave(): void {
-    this.missionEnded = true;
-    this.spawningEnabled = false;
 
-    // Stop future spawns
-    this.stopTimers();
-
-    // Show centered "FIRST WAVE COMPLETED" banner
-    const cx = this.cameras.main.centerX;
-    const cy = this.cameras.main.centerY;
-
-    const title = this.add.text(cx, cy - 20, 'FIRST WAVE COMPLETED', {
-      fontFamily: 'monospace',
-      fontSize: '48px',
-      color: '#33ff99'
-    }).setOrigin(0.5);
-
-    const sub = this.add.text(cx, cy + 28, 'Press R to Restart', {
-      fontFamily: 'monospace',
-      fontSize: '18px',
-      color: '#ffffff'
-    }).setOrigin(0.5);
-
-    // Update HUD to show "Complete"
-    this.gameState.waveIndex = 0; // Special value to indicate completion
-    this.updateHUD();
-
-    // Handle restart
-    this.input.keyboard?.once('keydown-R', () => this.scene.restart());
-  }
 
   destroy(): void {
     // Clean up HUD when scene is destroyed
@@ -779,9 +870,15 @@ export class SaucerScene extends Phaser.Scene {
       loop: true,
       callback: () => {
         if (this.spawningEnabled) {
-          const spawnX = GAME_WIDTH + 50;
-          const spawnY = Phaser.Math.Between(EDGE_PADDING, GAME_HEIGHT - EDGE_PADDING);
-          this.spawnEnemy(spawnX, spawnY);
+          // Check enemy cap before spawning
+          const baseCap = 3; // your existing enemy cap
+          const extra = this.data.get('extraEnemyCap') ?? 0;
+          const cap = baseCap + extra;
+          if (this.enemies.length < cap) {
+            const spawnX = GAME_WIDTH + 50;
+            const spawnY = Phaser.Math.Between(EDGE_PADDING, GAME_HEIGHT - EDGE_PADDING);
+            this.spawnEnemy(spawnX, spawnY);
+          }
         }
       }
     });
