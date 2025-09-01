@@ -92,51 +92,40 @@ export default function HUD() {
     };
   }, []);
 
-  // Render lives as simple circles
-  const renderLives = () => {
-    const lives = [];
-    for (let i = 0; i < 3; i++) {
-      lives.push(
-        <div
-          key={i}
-          className={`w-4 h-4 rounded-full border-2 ${
-            i < hudState.lives
-              ? 'bg-blue-400 border-blue-300'
-              : 'bg-gray-600 border-gray-500'
-          }`}
-        />
-      );
-    }
-    return lives;
-  };
-
   return (
-    <div className="absolute inset-0 pointer-events-none">
-      {/* Progress Bar - Very top, centered with animated sheen */}
-      <div className="absolute top-0 left-1/2 transform -translate-x-1/2 w-96 h-2 bg-black/30 rounded-full overflow-hidden">
-        <div
-          className="bg-gradient-to-r from-green-400 via-blue-400 to-cyan-400 h-full transition-all duration-300 ease-out relative overflow-hidden"
-          style={{ width: `${hudState.progress * 100}%` }}
-        >
-          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent animate-sheen"></div>
+    <div className="absolute inset-0">
+      {/* Top-left cluster */}
+      <div className="absolute left-4 top-3 flex items-center gap-3">
+        {/* Lives (no box) */}
+        <div className="flex items-center gap-2">
+          <span className="text-white/90 text-xs tracking-wide">Lives:</span>
+          <div className="flex gap-1">
+            {Array.from({ length: hudState.lives }).map((_, i) => (
+              <div key={i} className="h-3 w-3 rounded-full bg-white/90" />
+            ))}
+          </div>
+        </div>
+
+        {/* Score frosted capsule */}
+        <div className="
+          px-3 py-1 rounded-full
+          bg-white/10
+          border border-white/15
+          backdrop-blur-md
+          text-white/95 text-xs font-medium
+          shadow-[0_2px_8px_rgba(0,0,0,0.25)]
+        ">
+          Score: {hudState.score}
         </div>
       </div>
 
-      {/* Top HUD */}
-      <div className="absolute top-2 left-0 right-0 p-4 flex justify-between items-start pointer-events-auto">
-        {/* Lives */}
-        <div className="flex space-x-2">
-          {renderLives()}
-        </div>
-
-        {/* Score and Wave - Top Right */}
-        <div className="text-right">
-          <div className="bg-black bg-opacity-70 px-3 py-1 rounded text-white font-bold mb-1">
-            SCORE: {hudState.score}
-          </div>
-          <div className="bg-black bg-opacity-70 px-3 py-1 rounded text-white font-bold text-sm">
-            {hudState.waveIndex === 0 ? 'COMPLETE' : `WAVE ${hudState.waveIndex}`}
-          </div>
+      {/* Top-center progress bar */}
+      <div className="absolute top-3 left-1/2 -translate-x-1/2">
+        <div className="h-1.5 w-[280px] rounded-full bg-white/15 overflow-hidden border border-white/10">
+          <div
+            className="h-full bg-white/90 transition-[width] duration-100"
+            style={{ width: `${Math.min(Math.max(hudState.progress * 100, 0), 100)}%` }}
+          />
         </div>
       </div>
 

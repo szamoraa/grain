@@ -27,9 +27,9 @@ const ASTEROID_SCALES = [0.6, 1.0, 1.4];
 const ENEMY_LASER_SPEED = 700;     // px/s to the left
 const ENEMY_LASER_DEPTH = 80;      // draw above sprites/starfield
 
-// Scoring
-const POINT_ASTEROID = 100;
-const POINT_ENEMY = 1000;
+// Scoring - updated values
+const POINT_ASTEROID = 50;   // 50 points per asteroid (all sizes)
+const POINT_ENEMY = 200;     // 200 points per enemy
 
 // Power-ups
 const SHIELD_DURATION_MS = 5000;          // 5 seconds of invincibility
@@ -37,8 +37,8 @@ const SHIELD_DURATION_MS = 5000;          // 5 seconds of invincibility
 // Inter-wave breather
 const INTER_WAVE_MS = 1500;               // 1.5s pause between waves
 
-// Single wave system - Wave 1 (20s)
-const WAVE1_DURATION_MS = 20000; // ~20s
+// Single wave system - Wave 1 (40s)
+const WAVE1_DURATION_MS = 40000; // ~40s (doubled)
 const SHOW_COMPLETE_BANNER_MS = 1200; // brief pause before restart option
 const ASTEROID_SPAWN_MIN_MS = 700;
 const ASTEROID_SPAWN_MAX_MS = 1000;
@@ -567,7 +567,18 @@ export class SaucerScene extends Phaser.Scene {
       speed: speed,
     };
 
-    asteroid.sprite.setScale(scale);
+    // Make big asteroids 200% larger
+    const finalScale = scale >= 1.35 ? scale * 2.0 : scale;
+    asteroid.sprite.setScale(finalScale);
+
+    // Update physics body to match the new scale
+    if (scale >= 1.35) {
+      // For big asteroids, scale the physics body proportionally
+      const originalRadius = 16; // Approximate original radius
+      const newRadius = originalRadius * 2.0;
+      (asteroid.sprite.body as Phaser.Physics.Arcade.Body).setCircle(newRadius, -newRadius, -newRadius);
+    }
+
     this.asteroids.push(asteroid);
   }
 
