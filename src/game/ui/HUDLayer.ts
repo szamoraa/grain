@@ -2,12 +2,20 @@ import Phaser from 'phaser';
 
 export class HUDLayer extends Phaser.GameObjects.Container {
   private livesIcons: Phaser.GameObjects.Sprite[] = [];
+  private scoreCapsule!: Phaser.GameObjects.Container;
+  private scoreBg!: Phaser.GameObjects.Graphics;
   private scoreText!: Phaser.GameObjects.Text;
   private progressBarTrack!: Phaser.GameObjects.Graphics;
   private progressBarFill!: Phaser.GameObjects.Graphics;
   private progressBarGlow!: Phaser.GameObjects.Graphics;
   private progressWidth = 280;
   private progressHeight = 6;
+
+  // HUD layout constants
+  private readonly HUD_MARGIN = 12;
+  private readonly SCORE_SCALE = 1.5;     // +50%
+  private readonly LIVES_ICON_SCALE = 3.0; // 300%
+  private readonly LIVES_GAP_BASE = 6;    // base gap before scaling
 
   constructor(scene: Phaser.Scene) {
     super(scene, 0, 0);
@@ -20,14 +28,20 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     this.createScoreCapsule();
     this.createProgressBar();
 
+    // Initial layout
+    this.layout();
+
+    // Handle resize events
+    scene.scale.on('resize', this.layout, this);
+
     scene.add.existing(this);
   }
 
   private createLivesIcons(): void {
-    // Create 3 tiny saucer icons for lives (initially all visible)
+    // Create 3 saucer icons for lives (3x bigger, properly spaced)
     for (let i = 0; i < 3; i++) {
-      const lifeIcon = this.scene.add.sprite(16 + i * 20, 16, 'saucer');
-      lifeIcon.setScale(0.25);
+      const lifeIcon = this.scene.add.sprite(0, 0, 'saucer');
+      lifeIcon.setScale(0.25 * this.LIVES_ICON_SCALE); // 3x bigger than original tiny size
       lifeIcon.setTint(0x53a8ff); // Blue tint to match player
       this.livesIcons.push(lifeIcon);
       this.add(lifeIcon);
@@ -35,34 +49,19 @@ export class HUDLayer extends Phaser.GameObjects.Container {
   }
 
   private createScoreCapsule(): void {
-    // Create frosted glass capsule background
-    const capsuleGraphics = this.scene.add.graphics();
-    capsuleGraphics.fillStyle(0xffffff, 0.1); // Semi-transparent white
-    capsuleGraphics.lineStyle(1, 0xffffff, 0.15); // Subtle border
+    // Create score container for easy positioning
+    this.scoreCapsule = this.scene.add.container(0, 0);
 
-    // Draw rounded rectangle
-    const capsuleWidth = 120;
-    const capsuleHeight = 24;
-    const cornerRadius = 12;
-    const x = 16 + 3 * 20 + 16; // Position after lives icons
-    const y = 10;
+    // Create background graphics
+    this.scoreBg = this.scene.add.graphics();
 
-    capsuleGraphics.fillRoundedRect(x, y, capsuleWidth, capsuleHeight, cornerRadius);
-    capsuleGraphics.strokeRoundedRect(x, y, capsuleWidth, capsuleHeight, cornerRadius);
-
-    // Add backdrop blur effect (simulated with semi-transparent overlay)
-    const blurOverlay = this.scene.add.graphics();
-    blurOverlay.fillStyle(0xffffff, 0.05);
-    blurOverlay.fillRoundedRect(x + 1, y + 1, capsuleWidth - 2, capsuleHeight - 2, cornerRadius - 1);
-
-    // Create score text
+    // Create score text (1.5x larger)
     this.scoreText = this.scene.add.text(
-      x + capsuleWidth / 2,
-      y + capsuleHeight / 2,
+      0, 0,
       'Score: 0',
       {
         fontFamily: 'monospace',
-        fontSize: '12px',
+        fontSize: `${Math.round(12 * this.SCORE_SCALE)}px`, // 18px (1.5x larger)
         color: '#ffffff'
       }
     );
@@ -71,9 +70,37 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     // Add text shadow for contrast
     this.scoreText.setShadow(1, 1, '#000000', 0.5);
 
-    this.add(capsuleGraphics);
-    this.add(blurOverlay);
-    this.add(this.scoreText);
+    // Add elements to container
+    this.scoreCapsule.add(this.scoreBg);
+    this.scoreCapsule.add(this.scoreText);
+
+    // Draw initial background
+    this.drawScoreBg();
+
+    this.add(this.scoreCapsule);
+  }
+
+  private drawScoreBg(): void {
+    this.scoreBg.clear();
+
+    // Calculate padding based on scale
+    const padX = 10 * this.SCORE_SCALE;
+    const padY = 4 * this.SCORE_SCALE;
+
+    // Calculate background dimensions based on text size
+    const w = this.scoreText.width + padX * 2;
+    const h = this.scoreText.height + padY * 2;
+    const cornerRadius = 12 * this.SCORE_SCALE;
+
+    // Position background relative to text center
+    this.scoreBg.fillStyle(0xffffff, 0.1);
+    this.scoreBg.fillRoundedRect(-w/2, -h/2, w, h, cornerRadius);
+    this.scoreBg.lineStyle(1, 0xffffff, 0.15);
+    this.scoreBg.strokeRoundedRect(-w/2, -h/2, w, h, cornerRadius);
+
+    // Add backdrop blur effect (simulated with semi-transparent overlay)
+    this.scoreBg.fillStyle(0xffffff, 0.05);
+    this.scoreBg.fillRoundedRect(-w/2 + 1, -h/2 + 1, w - 2, h - 2, cornerRadius - 1);
   }
 
   private createProgressBar(): void {
@@ -106,10 +133,43 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     this.livesIcons.forEach((icon, index) => {
       icon.setVisible(index < lives);
     });
+    this.layout(); // Re-layout after visibility changes
   }
 
   public setScore(score: number): void {
     this.scoreText.setText(`Score: ${score}`);
+    this.drawScoreBg(); // Redraw background to fit new text
+    this.layout(); // Re-layout after text changes
+  }
+
+  private layout(): void {
+    const cam = this.scene.cameras.main;
+
+    // Position lives icons at top-left with proper spacing
+    this.livesIcons.forEach((icon, index) => {
+      const gap = this.LIVES_GAP_BASE * this.LIVES_ICON_SCALE;
+      const x = this.HUD_MARGIN + index * (icon.displayWidth + gap);
+      const y = this.HUD_MARGIN + icon.displayHeight / 2;
+      icon.setPosition(x, y);
+    });
+
+    // Position score capsule at top-right
+    const scoreWidth = this.scoreText.width + (10 * this.SCORE_SCALE * 2);
+    this.scoreCapsule.setPosition(
+      cam.width - this.HUD_MARGIN - scoreWidth/2,
+      this.HUD_MARGIN + this.scoreText.height/2
+    );
+
+    // Progress bar stays centered at top (unchanged)
+    const trackX = (cam.width - this.progressWidth) / 2;
+    const trackY = this.HUD_MARGIN;
+
+    // Redraw progress bar track at new position
+    this.progressBarTrack.clear();
+    this.progressBarTrack.fillStyle(0xffffff, 0.15);
+    this.progressBarTrack.lineStyle(1, 0xffffff, 0.1);
+    this.progressBarTrack.fillRoundedRect(trackX, trackY, this.progressWidth, this.progressHeight, 3);
+    this.progressBarTrack.strokeRoundedRect(trackX, trackY, this.progressWidth, this.progressHeight, 3);
   }
 
   public drawProgress(progress: number): void {
@@ -123,9 +183,9 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     // Calculate fill width
     const fillWidth = this.progressWidth * clampedProgress;
 
-    // Position calculations
+    // Position calculations (use same as layout method)
     const trackX = (this.scene.cameras.main.width - this.progressWidth) / 2;
-    const trackY = 12;
+    const trackY = this.HUD_MARGIN;
 
     // Draw fill
     this.progressBarFill.fillStyle(0xffffff, 0.9);
@@ -148,13 +208,14 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     this.progressBarTrack.destroy();
     this.progressBarFill.destroy();
     this.progressBarGlow.destroy();
+    this.scoreBg.destroy();
+
+    // Clean up containers
+    this.scoreCapsule.destroy();
 
     // Clean up life icons
     this.livesIcons.forEach(icon => icon.destroy());
     this.livesIcons = [];
-
-    // Clean up score text
-    this.scoreText.destroy();
 
     super.destroy();
   }
