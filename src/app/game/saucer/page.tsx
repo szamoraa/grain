@@ -47,7 +47,7 @@ export default function SaucerGamePage() {
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
             <h3 className="text-sm font-semibold text-white/90 mb-2">Info</h3>
             <ul className="text-xs text-white/70 space-y-1">
-              <li>Wave 1 lasts ~20 seconds.</li>
+              <li>Wave 1 lasts ~40 seconds.</li>
               <li>Big asteroids split into smaller ones when destroyed.</li>
               <li>Small asteroids are faster; big are slower.</li>
             </ul>

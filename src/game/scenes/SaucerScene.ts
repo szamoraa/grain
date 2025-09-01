@@ -2,6 +2,7 @@
 
 import Phaser from 'phaser';
 import { sfx } from '../Sfx';
+import { HUDLayer } from '../ui/HUDLayer';
 
 // Game tuning constants for Level 1
 const PLAYER_X = 140;             // Fixed X anchor for player
@@ -180,6 +181,9 @@ export class SaucerScene extends Phaser.Scene {
   asteroidTimer: Phaser.Time.TimerEvent | null = null;
   enemyTimer: Phaser.Time.TimerEvent | null = null;
 
+  // HUD
+  hud!: HUDLayer;
+
   constructor() {
     super({ key: 'SaucerScene' });
   }
@@ -191,15 +195,17 @@ export class SaucerScene extends Phaser.Scene {
     this.setupInput();
     this.initializeEnemyLasers();
 
+    // Initialize HUD
+    this.hud = new HUDLayer(this);
+    this.hud.setLives(this.gameState.lives);
+    this.hud.setScore(this.gameState.score);
+
     // Initialize single wave system - Wave 1
     this.waveStartTime = this.time.now;
     this.spawningEnabled = true;
     this.missionEnded = false;
     this.gameState.waveIndex = 1; // Show "Wave 1"
     this.startSpawnTimers();
-
-    // Send initial HUD update
-    this.updateHUD();
   }
 
   update(time: number, delta: number): void {
@@ -441,6 +447,9 @@ export class SaucerScene extends Phaser.Scene {
     this.gameState.invulnerable = true;
     this.gameState.invulnerabilityTime = INVULN_MS;
 
+    // Update HUD lives
+    this.hud.setLives(this.gameState.lives);
+
     sfx.boom();
     this.updateHUD();
 
@@ -567,15 +576,15 @@ export class SaucerScene extends Phaser.Scene {
       speed: speed,
     };
 
-    // Make big asteroids 200% larger
-    const finalScale = scale >= 1.35 ? scale * 2.0 : scale;
+    // Make big asteroids 1.6x larger (reduced from 2.0x)
+    const finalScale = scale >= 1.35 ? scale * 1.6 : scale;
     asteroid.sprite.setScale(finalScale);
 
     // Update physics body to match the new scale
     if (scale >= 1.35) {
       // For big asteroids, scale the physics body proportionally
       const originalRadius = 16; // Approximate original radius
-      const newRadius = originalRadius * 2.0;
+      const newRadius = originalRadius * 1.6;
       (asteroid.sprite.body as Phaser.Physics.Arcade.Body).setCircle(newRadius, -newRadius, -newRadius);
     }
 
@@ -703,13 +712,13 @@ export class SaucerScene extends Phaser.Scene {
     const elapsed = time - this.waveStartTime;
     this.gameState.progress = Phaser.Math.Clamp(elapsed / WAVE1_DURATION_MS, 0, 1);
 
+    // Update HUD progress
+    this.hud.drawProgress(this.gameState.progress);
+
     // Check for wave completion
     if (!this.missionEnded && elapsed >= WAVE1_DURATION_MS) {
       this.endWave();
     }
-
-    // Emit progress update for HUD
-    this.events.emit('hud:progress', this.gameState.progress);
   }
 
   // End the wave
@@ -742,6 +751,13 @@ export class SaucerScene extends Phaser.Scene {
 
     // Handle restart
     this.input.keyboard?.once('keydown-R', () => this.scene.restart());
+  }
+
+  destroy(): void {
+    // Clean up HUD when scene is destroyed
+    if (this.hud) {
+      this.hud.destroy();
+    }
   }
 
   // Start spawn timers for single wave
@@ -819,6 +835,10 @@ export class SaucerScene extends Phaser.Scene {
   // Idempotent score awarding
   private awardScore(amount: number, reason: 'asteroid' | 'enemy'): void {
     this.gameState.score += amount;
+
+    // Update HUD score
+    this.hud.setScore(this.gameState.score);
+
     this.events.emit('hud:score', this.gameState.score);
   }
 
