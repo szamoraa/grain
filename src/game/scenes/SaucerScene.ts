@@ -14,16 +14,18 @@ const WAVE1_DURATION_MS = 40000;  // keep as-is
 
 type WaveSpec = {
   durationMs: number;
-  enemyFireEveryMsMul: number; // 1.0 = baseline; lower = faster fire
-  extraEnemyCap: number;       // additional concurrent enemies allowed
-  asteroidSpawnMul: number;    // 1.0 keeps same density
+  enemyFireMul: number;      // 1.0=baseline, lower=faster fire
+  enemySpawnMul: number;     // 1.0=baseline, lower=more frequent spawns
+  asteroidSpawnMul: number;  // 1.0 keep same density
+  extraEnemyCap: number;     // adds to base enemy cap
 };
 
 const WAVES: WaveSpec[] = [
-  // Wave 1 – unchanged
-  { durationMs: WAVE1_DURATION_MS, enemyFireEveryMsMul: 1.0, extraEnemyCap: 0, asteroidSpawnMul: 1.0 },
-  // Wave 2 – same length, ~20% harder
-  { durationMs: WAVE1_DURATION_MS, enemyFireEveryMsMul: 0.8, extraEnemyCap: 1, asteroidSpawnMul: 1.0 },
+  // Wave 1 (unchanged)
+  { durationMs: WAVE1_DURATION_MS, enemyFireMul: 1.0, asteroidSpawnMul: 1.0, enemySpawnMul: 1.0, extraEnemyCap: 0 },
+
+  // Wave 2: same length, ~20% harder
+  { durationMs: WAVE1_DURATION_MS, enemyFireMul: 0.8, asteroidSpawnMul: 1.0, enemySpawnMul: 0.85, extraEnemyCap: 1 },
 ];
 const LASER_SPEED = 900;          // Laser projectile speed
 
@@ -55,15 +57,16 @@ const SHIELD_DURATION_MS = 5000;          // 5 seconds of invincibility
 // Wave system constants
 const SHOW_COMPLETE_BANNER_MS = 1200; // brief pause before restart option
 const INTER_WAVE_MS = 1200; // 1.2s quiet gap between waves
+// Baseline spawn intervals (Wave 1 values)
 const ASTEROID_SPAWN_MIN_MS = 700;
 const ASTEROID_SPAWN_MAX_MS = 1000;
 const ENEMY_SPAWN_MIN_MS = 1300;
 const ENEMY_SPAWN_MAX_MS = 1900;
+const ENEMY_FIRE_MIN_MS = 800;
+const ENEMY_FIRE_MAX_MS = 1800;
 const ASTEROID_CHANCE = 0.65; // 65% asteroids
 const ASTEROID_SPEED_BASE = 260;
 const ENEMY_SPEED_BASE = 280;
-const ENEMY_FIRE_MIN_MS = 1000;
-const ENEMY_FIRE_MAX_MS = 1500;
 
 // Bullet system - extended reach
 const BULLET_TTL_MS = 2000; // 2s to reach right edge
@@ -193,15 +196,22 @@ export class SaucerScene extends Phaser.Scene {
   spawningEnabled = true;
   inInterWave = false;
 
+  // Timer management for wave-specific spawners
+  timers: Phaser.Time.TimerEvent[] = [];
+
+  // Baseline values for wave scaling
+  baseEnemyCap = 3;
+  baseEnemySpawnEveryMs: [number, number] = [ENEMY_SPAWN_MIN_MS, ENEMY_SPAWN_MAX_MS];
+  baseEnemyFireEveryMs: [number, number] = [ENEMY_FIRE_MIN_MS, ENEMY_FIRE_MAX_MS];
+  baseAsteroidEveryMs: [number, number] = [ASTEROID_SPAWN_MIN_MS, ASTEROID_SPAWN_MAX_MS];
+
   // Power-ups
   powerups!: Phaser.Physics.Arcade.Group;
   shieldActive = false;
   shieldTimer?: Phaser.Time.TimerEvent;
   shieldRing?: Phaser.GameObjects.Image;
 
-  // Spawn timers
-  asteroidTimer: Phaser.Time.TimerEvent | null = null;
-  enemyTimer: Phaser.Time.TimerEvent | null = null;
+
 
   // HUD
   hud!: HUDLayer;
@@ -217,15 +227,14 @@ export class SaucerScene extends Phaser.Scene {
 
     // Reset wave timer & progress bar
     this.waveStartTime = this.time.now;
-    this.events.emit('hud:progress', 0); // ensures HUD resets to 0
+    this.events.emit('hud:progress', 0); // reset progress bar
+    this.events.emit('hud:wave', i + 1); // show wave label
+    this.spawningEnabled = true;
+    this.inInterWave = false;
 
-    // Tell HUD: "Wave 1"/"Wave 2"
-    this.events.emit('hud:wave', i + 1);
-
-    // Apply wave-specific settings
-    this.data.set('enemyFireMul', spec.enemyFireEveryMsMul);
-    this.data.set('extraEnemyCap', spec.extraEnemyCap);
-    this.data.set('asteroidSpawnMul', spec.asteroidSpawnMul);
+    // Ensure clean slate
+    this.stopAllSpawnTimers();
+    this.startWaveSpawners(spec);
 
     // Show brief wave intro banner for Wave 2
     if (i > 0) {
@@ -235,31 +244,84 @@ export class SaucerScene extends Phaser.Scene {
 
   private endWave() {
     this.inInterWave = true;
-
-    // Stop scheduling NEW spawns (do not delete existing objects)
     this.spawningEnabled = false;
+    this.stopAllSpawnTimers();
 
-    // Show completion banner
+    // Optional: clear remaining enemies after a short fade so Wave 2 starts clean
+    this.enemies.forEach((enemy) => {
+      if (!enemy.sprite.active) return;
+      this.tweens.add({
+        targets: enemy.sprite, alpha: 0, duration: 250, onComplete: () => {
+          const sprite = enemy.sprite as Phaser.Physics.Arcade.Sprite;
+          sprite.disableBody(true, true);
+        }
+      });
+    });
+
+    // Inter-wave banner + quiet gap
     this.showCenterBanner(`Wave ${this.currentWaveIndex + 1} Complete`, 700);
 
-    // After inter-wave break, either start next wave or finish
     this.time.delayedCall(INTER_WAVE_MS, () => {
       this.inInterWave = false;
 
       if (this.currentWaveIndex + 1 < WAVES.length) {
-        // Wave 2 incoming banner
-        this.showCenterBanner(`Wave ${this.currentWaveIndex + 2} incoming...`, 700);
-
-        // Brief delay then start next wave
-        this.time.delayedCall(700, () => {
-          this.spawningEnabled = true;
-          this.startWave(this.currentWaveIndex + 1);
-        });
+        // Start next wave fresh
+        this.startWave(this.currentWaveIndex + 1);
+        this.showCenterBanner(`Wave ${this.currentWaveIndex + 1} Start`, 700);
       } else {
-        // No more waves -> mission complete
+        // No more waves
         this.finishMission();
       }
     });
+  }
+
+  private stopAllSpawnTimers() {
+    for (const t of this.timers) {
+      if (t && !t.hasDispatched) t.remove(false);
+    }
+    this.timers = [];
+  }
+
+  private startWaveSpawners(spec: WaveSpec) {
+    // Enemy spawner (interval scaled)
+    const [emin, emax] = this.baseEnemySpawnEveryMs;
+    const enemySpawnDelay = () => Phaser.Math.Between(
+      Math.round(emin * spec.enemySpawnMul),
+      Math.round(emax * spec.enemySpawnMul)
+    );
+
+    const enemySpawnTick = () => {
+      if (!this.spawningEnabled || this.inInterWave) return;
+      // respect cap
+      const cap = this.baseEnemyCap + spec.extraEnemyCap;
+      if (this.enemies.length < cap) {
+        const spawnX = GAME_WIDTH + 50;
+        const spawnY = Phaser.Math.Between(EDGE_PADDING, GAME_HEIGHT - EDGE_PADDING);
+        this.spawnEnemy(spawnX, spawnY);
+      }
+      // reschedule next tick
+      this.timers.push(this.time.delayedCall(enemySpawnDelay(), enemySpawnTick));
+    };
+    this.timers.push(this.time.delayedCall(enemySpawnDelay(), enemySpawnTick));
+
+    // Asteroid spawner (keep density same unless you want slight change)
+    const [amin, amax] = this.baseAsteroidEveryMs;
+    const asteroidDelay = () => Phaser.Math.Between(
+      Math.round(amin * spec.asteroidSpawnMul),
+      Math.round(amax * spec.asteroidSpawnMul)
+    );
+
+    const asteroidTick = () => {
+      if (!this.spawningEnabled || this.inInterWave) return;
+      const spawnX = GAME_WIDTH + 50;
+      const spawnY = Phaser.Math.Between(EDGE_PADDING, GAME_HEIGHT - EDGE_PADDING);
+      this.spawnAsteroid(spawnX, spawnY);
+      this.timers.push(this.time.delayedCall(asteroidDelay(), asteroidTick));
+    };
+    this.timers.push(this.time.delayedCall(asteroidDelay(), asteroidTick));
+
+    // Tell per-enemy fire logic about the fire multiplier
+    this.data.set('enemyFireMul', spec.enemyFireMul);
   }
 
   private showCenterBanner(text: string, duration: number) {
@@ -329,8 +391,6 @@ export class SaucerScene extends Phaser.Scene {
 
     // Initialize multi-wave system - start Wave 1
     this.startWave(0); // start Wave 1 exactly as before
-    this.spawningEnabled = true;
-    this.startSpawnTimers();
   }
 
   update(time: number, delta: number): void {
@@ -600,7 +660,7 @@ export class SaucerScene extends Phaser.Scene {
     this.gameState.gameOver = true;
 
     // Stop all spawn timers
-    this.stopTimers();
+    this.stopAllSpawnTimers();
 
     // Get camera center for perfect centering
     const cx = this.cameras.main.centerX;
@@ -967,50 +1027,7 @@ export class SaucerScene extends Phaser.Scene {
     this.hud?.setLives(this.gameState.lives);
   }
 
-  // Start spawn timers for single wave
-  private startSpawnTimers(): void {
-    this.asteroidTimer = this.time.addEvent({
-      delay: Phaser.Math.Between(ASTEROID_SPAWN_MIN_MS, ASTEROID_SPAWN_MAX_MS),
-      loop: true,
-      callback: () => {
-        if (this.spawningEnabled && !this.inInterWave) {
-          const spawnX = GAME_WIDTH + 50;
-          const spawnY = Phaser.Math.Between(EDGE_PADDING, GAME_HEIGHT - EDGE_PADDING);
-          this.spawnAsteroid(spawnX, spawnY);
-        }
-      }
-    });
 
-    this.enemyTimer = this.time.addEvent({
-      delay: Phaser.Math.Between(ENEMY_SPAWN_MIN_MS, ENEMY_SPAWN_MAX_MS),
-      loop: true,
-      callback: () => {
-        if (this.spawningEnabled && !this.inInterWave) {
-          // Check enemy cap before spawning
-          const baseCap = 3; // your existing enemy cap
-          const extra = this.data.get('extraEnemyCap') ?? 0;
-          const cap = baseCap + extra;
-          if (this.enemies.length < cap) {
-            const spawnX = GAME_WIDTH + 50;
-            const spawnY = Phaser.Math.Between(EDGE_PADDING, GAME_HEIGHT - EDGE_PADDING);
-            this.spawnEnemy(spawnX, spawnY);
-          }
-        }
-      }
-    });
-  }
-
-  // Stop all spawn timers
-  private stopTimers(): void {
-    if (this.asteroidTimer) {
-      this.asteroidTimer.remove();
-      this.asteroidTimer = null;
-    }
-    if (this.enemyTimer) {
-      this.enemyTimer.remove();
-      this.enemyTimer = null;
-    }
-  }
 
 
 

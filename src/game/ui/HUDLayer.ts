@@ -12,7 +12,7 @@ export class HUDLayer extends Phaser.GameObjects.Container {
   private progressHeight = 6;
 
   // HUD layout constants
-  private readonly HUD_MARGIN = 12;
+  private readonly HUD_MARGIN = 24;     // increased for breathing room
   private readonly SCORE_SCALE = 1.5;     // +50%
   private readonly LIVES_ICON_SCALE = 3.0; // 300%
   private readonly LIVES_GAP_BASE = 6;    // base gap before scaling
