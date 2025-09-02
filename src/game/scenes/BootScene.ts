@@ -193,6 +193,18 @@ export class BootScene extends Phaser.Scene {
     heartGraphics.generateTexture('pwr_heart', 24, 24);
     heartGraphics.destroy();
 
+    // AMMO ALERT GLYPH (center exclamation)
+    {
+      const alertGraphics = this.add.graphics({ x: 0, y: 0 });
+      alertGraphics.fillStyle(0xE9F2FF, 1);
+      // Vertical line
+      alertGraphics.fillRect(14, 6, 4, 12);
+      // Dot at bottom
+      alertGraphics.fillRect(14, 22, 4, 4);
+      alertGraphics.generateTexture('hud_alert', 32, 32);
+      alertGraphics.destroy();
+    }
+
     // PLAYER LASER (blue) — if not already present
     if (!this.textures.exists("playerLaser")) {
       const playerLaserGraphics = this.add.graphics({ x: 0, y: 0 });

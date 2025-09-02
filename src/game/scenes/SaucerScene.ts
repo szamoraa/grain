@@ -54,6 +54,12 @@ const POINT_ENEMY = 200;     // 200 points per enemy
 // Power-ups
 const SHIELD_DURATION_MS = 5000;          // 5 seconds of invincibility
 
+// Ammo tuning (gentle)
+const AMMO_MAX = 20;              // full magazine
+const AMMO_SHOT_COST = 1;         // cost per bullet
+const AMMO_RELOAD_DELAY_MS = 650; // short pause when you hit 0
+const AMMO_REGEN_RATE_PER_S = 8;  // passive regen when not firing
+
 // Wave system constants
 const SHOW_COMPLETE_BANNER_MS = 1200; // brief pause before restart option
 const INTER_WAVE_MS = 1200; // 1.2s quiet gap between waves
@@ -210,6 +216,12 @@ export class SaucerScene extends Phaser.Scene {
   shieldActive = false;
   shieldTimer?: Phaser.Time.TimerEvent;
   shieldRing?: Phaser.GameObjects.Image;
+
+  // Ammo system
+  ammo = AMMO_MAX;
+  reloading = false;
+  lastShotAt = 0;
+  lastAmmoTick = 0;
 
 
 
@@ -391,6 +403,9 @@ export class SaucerScene extends Phaser.Scene {
 
     // Initialize multi-wave system - start Wave 1
     this.startWave(0); // start Wave 1 exactly as before
+
+    // Initialize ammo system
+    this.emitAmmo();
   }
 
   update(time: number, delta: number): void {
@@ -425,6 +440,9 @@ export class SaucerScene extends Phaser.Scene {
 
     // Update power-ups and shield
     this.updatePowerUps();
+
+    // Update ammo system (passive regen)
+    this.updateAmmo(delta);
   }
 
   // Initialize simple background
@@ -503,7 +521,7 @@ export class SaucerScene extends Phaser.Scene {
 
     // Handle shooting
     if (this.spaceKey.isDown && this.time.now - this.lastShotTime > LASER_COOLDOWN_MS) {
-      this.shoot();
+      this.tryFireLaser();
     }
 
     // Invulnerability flashing
@@ -820,7 +838,7 @@ export class SaucerScene extends Phaser.Scene {
   }
 
   // Shoot laser
-  private shoot(): void {
+  private spawnPlayerLaser(): void {
     this.lastShotTime = this.time.now;
 
     const projectile: Projectile = {
@@ -940,6 +958,55 @@ export class SaucerScene extends Phaser.Scene {
     // Clean up shield timer
     if (this.shieldTimer) {
       this.shieldTimer.remove();
+    }
+  }
+
+  // Ammo methods
+  private emitAmmo() {
+    const ratio = Phaser.Math.Clamp(this.ammo / AMMO_MAX, 0, 1);
+    this.events.emit('hud:ammo', { ratio, reloading: this.reloading, ammo: this.ammo });
+  }
+
+  private updateAmmo(delta: number) {
+    // Passive regen when not reloading and not holding fire
+    if (!this.reloading && this.ammo < AMMO_MAX) {
+      const add = (AMMO_REGEN_RATE_PER_S * (delta / 1000));
+      const before = this.ammo;
+      this.ammo = Math.min(AMMO_MAX, this.ammo + add);
+      if (Math.floor(before) !== Math.floor(this.ammo)) this.emitAmmo();
+    }
+  }
+
+  private tryFireLaser() {
+    const now = this.time.now;
+
+    if (this.reloading) return;                    // block while reloading
+    if (this.ammo <= 0) {
+      this.reloading = true;
+      this.emitAmmo();
+      this.time.delayedCall(AMMO_RELOAD_DELAY_MS, () => {
+        this.reloading = false;
+        this.ammo = AMMO_MAX;
+        this.emitAmmo();
+      });
+      return;
+    }
+
+    // Create player laser (your existing logic)
+    this.spawnPlayerLaser();
+
+    this.ammo = Math.max(0, this.ammo - AMMO_SHOT_COST);
+    this.lastShotAt = now;
+    this.emitAmmo();
+
+    if (this.ammo === 0) {
+      this.reloading = true;
+      this.emitAmmo();
+      this.time.delayedCall(AMMO_RELOAD_DELAY_MS, () => {
+        this.reloading = false;
+        this.ammo = AMMO_MAX;
+        this.emitAmmo();
+      });
     }
   }
 
