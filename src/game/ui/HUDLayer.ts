@@ -5,6 +5,9 @@ export class HUDLayer extends Phaser.GameObjects.Container {
   private scoreCapsule!: Phaser.GameObjects.Container;
   private scoreBg!: Phaser.GameObjects.Graphics;
   private scoreText!: Phaser.GameObjects.Text;
+  private bestText!: Phaser.GameObjects.Text;
+  private streakText!: Phaser.GameObjects.Text;
+  private streakBadge!: Phaser.GameObjects.Container;
   private progressBarTrack!: Phaser.GameObjects.Graphics;
   private progressBarFill!: Phaser.GameObjects.Graphics;
   private progressBarGlow!: Phaser.GameObjects.Graphics;
@@ -66,6 +69,8 @@ export class HUDLayer extends Phaser.GameObjects.Container {
 
     this.createLivesIcons();
     this.createScoreCapsule();
+    this.createBestText();
+    this.createStreakBadge();
     this.createProgressBar();
     this.createAmmoArc();
     this.createIntroCard();
@@ -173,6 +178,38 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     this.drawScoreBg();
 
     this.add(this.scoreCapsule);
+  }
+
+  private createBestText(): void {
+    this.bestText = this.scene.add.text(0, 0, 'Best: 0', {
+      fontFamily: 'AstroUI',
+      fontSize: '14px',
+      color: '#ffffff',
+      align: 'right'
+    });
+    this.bestText.setAlpha(0.8);
+    this.add(this.bestText);
+  }
+
+  private createStreakBadge(): void {
+    this.streakBadge = this.scene.add.container(0, 0);
+    this.streakBadge.setVisible(false); // Hidden by default
+
+    // Badge background
+    const badgeBg = this.scene.add.graphics();
+    badgeBg.fillStyle(0xffd700, 0.9); // Gold color
+    badgeBg.fillRoundedRect(-25, -12, 50, 24, 8);
+
+    // Streak text
+    this.streakText = this.scene.add.text(0, 0, '×2', {
+      fontFamily: 'AstroUI',
+      fontSize: '14px',
+      color: '#000000',
+      fontStyle: 'bold'
+    }).setOrigin(0.5);
+
+    this.streakBadge.add([badgeBg, this.streakText]);
+    this.add(this.streakBadge);
   }
 
   private drawScoreBg(): void {
@@ -374,6 +411,33 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     }
   }
 
+  public setBest(best: number): void {
+    this.bestText.setText(`Best: ${best}`);
+    this.layout();
+  }
+
+  public setStreak(streak: number): void {
+    if (streak <= 0) {
+      this.streakBadge.setVisible(false);
+      return;
+    }
+
+    this.streakText.setText(`×${streak}`);
+    this.streakBadge.setVisible(true);
+
+    // Pulse animation when streak increases
+    this.scene.tweens.add({
+      targets: this.streakBadge,
+      scaleX: 1.1,
+      scaleY: 1.1,
+      duration: 120,
+      yoyo: true,
+      ease: 'Power2.out'
+    });
+
+    this.layout();
+  }
+
   private layout(): void {
     const cam = this.scene.cameras.main;
 
@@ -391,6 +455,15 @@ export class HUDLayer extends Phaser.GameObjects.Container {
       cam.width - this.HUD_MARGIN - scoreWidth/2,
       this.HUD_MARGIN + this.scoreText.height/2
     );
+
+    // Position best score text below lives
+    const livesY = this.livesIcons.length > 0 ? this.livesIcons[0].y + this.livesIcons[0].displayHeight/2 + 8 : this.HUD_MARGIN;
+    this.bestText.setPosition(this.HUD_MARGIN, livesY + this.bestText.height/2);
+
+    // Position streak badge near score
+    const streakX = this.scoreCapsule.x - this.scoreCapsule.displayWidth/2 - 35;
+    const streakY = this.scoreCapsule.y;
+    this.streakBadge.setPosition(streakX, streakY);
 
     // Progress bar stays centered at top (unchanged)
     const trackX = (cam.width - this.progressWidth) / 2;

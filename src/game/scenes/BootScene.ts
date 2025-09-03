@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { INTRO } from '../config';
 
 // Boot scene - handles initial loading and setup
 export class BootScene extends Phaser.Scene {
@@ -16,10 +17,14 @@ export class BootScene extends Phaser.Scene {
     loadingBar.fillRect(this.cameras.main.width / 2 - 100, this.cameras.main.height / 2, 200, 20);
 
     // Since we're generating textures procedurally, we don't need actual file loading
-    // Just transition to the menu scene
+    // Transition to intro scene if enabled, otherwise menu
     this.time.delayedCall(100, () => {
       loadingBar.destroy();
-      this.scene.start('MenuScene');
+      if (INTRO.enabled) {
+        this.scene.start('IntroScene');
+      } else {
+        this.scene.start('MenuScene');
+      }
     });
   }
 
@@ -41,6 +46,9 @@ export class BootScene extends Phaser.Scene {
 
     // Create starfield textures
     this.createStarfieldTextures();
+
+    // Create Stinger enemy texture
+    this.createStingerTexture();
   }
 
   private createSaucerTexture(): void {
@@ -215,5 +223,21 @@ export class BootScene extends Phaser.Scene {
       playerLaserGraphics.generateTexture("playerLaser", 18, 6);
       playerLaserGraphics.destroy();
     }
+  }
+
+  private createStingerTexture(): void {
+    const graphics = this.add.graphics();
+
+    // Yellow Stinger - smaller, more angular than red enemy
+    graphics.fillStyle(0xffff00); // Bright yellow
+    graphics.fillEllipse(20, 12, 28, 16); // Smaller than red enemy (35x18)
+
+    // Darker yellow accent
+    graphics.fillStyle(0xcccc00); // Darker yellow
+    graphics.fillEllipse(20, 8, 20, 10);
+
+    // Generate texture
+    graphics.generateTexture('stinger-saucer', 40, 24);
+    graphics.destroy();
   }
 }

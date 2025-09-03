@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { INTRO } from '../config';
 
 export class MenuScene extends Phaser.Scene {
   constructor() {
@@ -42,12 +43,19 @@ export class MenuScene extends Phaser.Scene {
       playButton.setColor('#00ff00');
     });
 
-    playButton.on('pointerdown', () => {
-      this.scene.start('SaucerScene');
-    });
+    const startGameScene = () => {
+      if (INTRO.enabled) {
+        this.scene.start('IntroScene');
+      } else {
+        this.scene.start('SaucerScene');
+      }
+    };
+
+    playButton.on('pointerdown', startGameScene);
 
     // Instructions
     const instructions = this.add.text(cx, cy + 140, 'Use ↑↓ or W/S to move\nPress SPACE to shoot\nPress R to restart when game over', {
+      fontFamily: 'AstroUI',
       fontSize: '18px',
       color: '#888888',
       align: 'center'
@@ -58,12 +66,7 @@ export class MenuScene extends Phaser.Scene {
     const enterKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER);
     const spaceKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
 
-    enterKey.on('down', () => {
-      this.scene.start('SaucerScene');
-    });
-
-    spaceKey.on('down', () => {
-      this.scene.start('SaucerScene');
-    });
+    enterKey.on('down', startGameScene);
+    spaceKey.on('down', startGameScene);
   }
 }

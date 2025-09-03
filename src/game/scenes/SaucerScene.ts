@@ -3,6 +3,10 @@
 import Phaser from 'phaser';
 import { sfx } from '../Sfx';
 import { HUDLayer } from '../ui/HUDLayer';
+import { INTRO, SCORE, STINGER } from '../config';
+import { getHighScore, tryUpdateHighScore } from '../../services/highscore';
+import { GameEventEmitter } from '../../core/events';
+import { Stinger } from '../entities/enemies/Stinger';
 
 // Game tuning constants for Level 1
 const PLAYER_X = 140;             // Fixed X anchor for player
@@ -258,8 +262,25 @@ export class SaucerScene extends Phaser.Scene {
   // HUD
   hud!: HUDLayer;
 
+  // Meta loop system
+  gameEvents!: GameEventEmitter;
+  currentStreak = 0;
+  streakLastKillTime = 0;
+  highScore = 0;
+
+  // Stinger enemies
+  stingers: Stinger[] = [];
+  stingerSpawnTimer?: Phaser.Time.TimerEvent;
+
+  // Intro gate
+  fromIntro = false;
+
   constructor() {
     super({ key: 'SaucerScene' });
+  }
+
+  init(data: { fromIntro?: boolean } = {}) {
+    this.fromIntro = data.fromIntro || false;
   }
 
   // Wave management functions
@@ -429,6 +450,20 @@ export class SaucerScene extends Phaser.Scene {
   }
 
   create(): void {
+    // Initialize meta loop system
+    this.gameEvents = new GameEventEmitter(this);
+    this.highScore = getHighScore();
+    this.hud.setBest(this.highScore);
+
+    // Gate gameplay until intro completes (if enabled)
+    if (INTRO.enabled && !this.fromIntro) {
+      // Show loading state or minimal setup
+      this.initializeBackground();
+      this.initializePlayer();
+      this.setupInput();
+      return;
+    }
+
     // Initialize game systems
     this.initializeBackground();
     this.initializePlayer();
@@ -446,12 +481,86 @@ export class SaucerScene extends Phaser.Scene {
     this.hud = new HUDLayer(this);
     this.hud.setLives(this.gameState.lives);
     this.hud.setScore(this.gameState.score);
+    this.hud.setBest(this.highScore);
+    this.hud.setStreak(this.currentStreak);
 
     // Initialize multi-wave system - start Wave 1
     this.startWave(0); // start Wave 1 exactly as before
 
     // Initialize ammo system
     this.emitAmmoArc();
+
+    // Initialize Stinger spawning
+    this.initializeStingerSpawning();
+  }
+
+  private initializeStingerSpawning(): void {
+    if (!STINGER.enabled) return;
+
+    // Start Stinger spawn timer
+    this.stingerSpawnTimer = this.time.addEvent({
+      delay: 3000, // Check every 3 seconds
+      callback: this.trySpawnStinger,
+      callbackScope: this,
+      loop: true
+    });
+  }
+
+  private trySpawnStinger = (): void => {
+    if (!STINGER.enabled || this.gameState.gameOver || !this.spawningEnabled) return;
+
+    // Check wave requirement
+    if (this.currentWaveIndex + 1 < STINGER.spawn.fromWave) return;
+
+    // Check concurrent limit
+    if (this.stingers.length >= STINGER.spawn.maxAlive) return;
+
+    // Random chance
+    if (Math.random() > STINGER.spawn.chance) return;
+
+    // Spawn Stinger from right edge
+    const spawnY = Phaser.Math.Between(50, this.cameras.main.height - 50);
+    const stinger = new Stinger(this, this.cameras.main.width + 50, spawnY);
+    this.stingers.push(stinger);
+
+    // Note: Collision detection for Stingers is handled manually in handleCollisions() method
+    // to match the existing collision system used for enemies and asteroids
+  }
+
+  private onStingerHitPlayer(stinger: Stinger): void {
+    if (this.shieldActive) return;
+
+    stinger.onHitPlayer();
+    this.playerHit();
+  }
+
+  private onLaserHitStinger(laser: Phaser.Physics.Arcade.Sprite, stinger: Stinger): void {
+    // Remove laser
+    this.spendBullet(laser);
+
+    // Kill Stinger
+    this.killStinger(stinger);
+
+    // Award score
+    this.awardScore(STINGER.scoreValue, 'stinger');
+  }
+
+  private killStinger(stinger: Stinger): void {
+    // Remove from array
+    const index = this.stingers.indexOf(stinger);
+    if (index > -1) {
+      this.stingers.splice(index, 1);
+    }
+
+    // Create explosion
+    this.createExplosion(stinger.sprite.x, stinger.sprite.y);
+    this.events.emit('hud:ripple', { kind: 'explosion' });
+
+    // Destroy Stinger
+    stinger.destroy();
+
+    // Emit kill event for streak system
+    this.gameEvents.emit('enemyKilled', { type: 'stinger', score: STINGER.scoreValue });
   }
 
   update(time: number, delta: number): void {
@@ -466,6 +575,7 @@ export class SaucerScene extends Phaser.Scene {
     // Update enemies and asteroids
     this.updateEnemies(delta);
     this.updateAsteroids(delta);
+    this.updateStingers(delta);
     this.updateProjectiles(delta);
 
     // Handle enemy shooting and bullet cleanup
@@ -643,6 +753,18 @@ export class SaucerScene extends Phaser.Scene {
     });
   }
 
+  private updateStingers(delta: number): void {
+    // Update all active Stingers
+    this.stingers.forEach((stinger, index) => {
+      stinger.update(delta);
+
+      // Remove dead Stingers
+      if (!stinger.isAlive()) {
+        this.stingers.splice(index, 1);
+      }
+    });
+  }
+
   // Handle collisions
   private handleCollisions(): void {
     // Player laser vs Enemies
@@ -695,6 +817,37 @@ export class SaucerScene extends Phaser.Scene {
       });
     }
 
+    // Player vs Stingers
+    if (!this.gameState.invulnerable) {
+      this.stingers.forEach((stinger) => {
+        if (Phaser.Geom.Intersects.RectangleToRectangle(
+          this.player.sprite.getBounds(),
+          stinger.sprite.getBounds()
+        )) {
+          this.onStingerHitPlayer(stinger);
+        }
+      });
+    }
+
+    // Player lasers vs Stingers
+    this.projectiles.forEach((projectile, pIndex) => {
+      this.stingers.forEach((stinger, sIndex) => {
+        if (Phaser.Geom.Intersects.RectangleToRectangle(
+          projectile.sprite.getBounds(),
+          stinger.sprite.getBounds()
+        )) {
+          // Idempotent collision handling
+          if (!projectile.sprite.getData('spent') && stinger.isAlive()) {
+            this.spendBullet(projectile.sprite);
+            this.killStinger(stinger);
+            // Remove from arrays
+            this.projectiles.splice(pIndex, 1);
+            this.stingers.splice(sIndex, 1);
+          }
+        }
+      });
+    });
+
     // Enemy lasers vs Player handled by physics overlap in initializeEnemyLasers()
   }
 
@@ -711,6 +864,14 @@ export class SaucerScene extends Phaser.Scene {
       });
       return;
     }
+
+    // Reset streak on player hit (if configured)
+    if (SCORE.onPlayerHitResetsStreak) {
+      this.resetStreak();
+    }
+
+    // Emit player hit event
+    this.gameEvents.emit('playerHit', { damage: 1 });
 
     this.gameState.lives--;
     this.gameState.invulnerable = true;
@@ -828,8 +989,17 @@ export class SaucerScene extends Phaser.Scene {
   private gameOver(): void {
     this.gameState.gameOver = true;
 
-    // Stop all spawn timers
+    // Stop all spawn timers and Stinger spawning
     this.stopAllSpawnTimers();
+    if (this.stingerSpawnTimer) {
+      this.stingerSpawnTimer.destroy();
+    }
+
+    // Check for new high score
+    const highScoreResult = tryUpdateHighScore(this.gameState.score);
+
+    // Emit game over event
+    this.gameEvents.emit('gameOver', { finalScore: this.gameState.score });
 
     // Get camera center for perfect centering
     const cx = this.cameras.main.centerX;
@@ -837,29 +1007,57 @@ export class SaucerScene extends Phaser.Scene {
 
     // Show game over text - perfectly centered
     const gameOverText = this.add.text(cx, cy - 60, 'GAME OVER', {
+      fontFamily: 'AstroUI',
       fontSize: '64px',
       color: '#ff2b2b',
       fontStyle: 'bold'
     });
     gameOverText.setOrigin(0.5, 0.5);
 
+    // Show "NEW BEST!" banner if new high score
+    let newBestBanner: Phaser.GameObjects.Text | null = null;
+    if (highScoreResult.isNew) {
+      newBestBanner = this.add.text(cx, cy - 120, 'NEW BEST!', {
+        fontFamily: 'AstroUI',
+        fontSize: '48px',
+        color: '#ffd700',
+        fontStyle: 'bold'
+      });
+      newBestBanner.setOrigin(0.5, 0.5);
+
+      // Animate the banner
+      this.tweens.add({
+        targets: newBestBanner,
+        scale: 1.2,
+        duration: 500,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Power2'
+      });
+
+      // Emit high score updated event
+      this.gameEvents.emit('highScoreUpdated', { newBest: highScoreResult.best });
+    }
+
     // Show final score
     const scoreText = this.add.text(cx, cy, `Score: ${this.gameState.score}`, {
+      fontFamily: 'AstroUI',
       fontSize: '28px',
       color: '#ffffff'
     });
     scoreText.setOrigin(0.5, 0.5);
 
-    // Show high score
-    const highScore = parseInt(localStorage.getItem('grain_highscore') || '0');
-    const highScoreText = this.add.text(cx, cy + 32, `High Score: ${highScore}`, {
+    // Show best score
+    const bestText = this.add.text(cx, cy + 32, `Best: ${highScoreResult.best}`, {
+      fontFamily: 'AstroUI',
       fontSize: '24px',
       color: '#cccccc'
     });
-    highScoreText.setOrigin(0.5, 0.5);
+    bestText.setOrigin(0.5, 0.5);
 
     // Restart instruction
     const restartText = this.add.text(cx, cy + 72, 'Press R to Restart', {
+      fontFamily: 'AstroUI',
       fontSize: '24px',
       color: '#ffffff'
     });
@@ -870,15 +1068,22 @@ export class SaucerScene extends Phaser.Scene {
       const newCx = this.cameras.main.centerX;
       const newCy = this.cameras.main.centerY;
       gameOverText.setPosition(newCx, newCy - 60);
+      if (newBestBanner) {
+        newBestBanner.setPosition(newCx, newCy - 120);
+      }
       scoreText.setPosition(newCx, newCy);
-      highScoreText.setPosition(newCx, newCy + 32);
+      bestText.setPosition(newCx, newCy + 32);
       restartText.setPosition(newCx, newCy + 72);
     });
 
-    // Add restart key
+    // Add restart key - restart with intro if enabled
     const restartKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.R);
     restartKey.on('down', () => {
-      this.scene.restart();
+      if (INTRO.enabled) {
+        this.scene.start('IntroScene');
+      } else {
+        this.scene.restart();
+      }
     });
   }
 
@@ -1406,22 +1611,53 @@ export class SaucerScene extends Phaser.Scene {
   }
 
   // Idempotent score awarding
-  private awardScore(amount: number, _reason: 'asteroid' | 'enemy'): void {
+  private awardScore(amount: number, _reason: 'asteroid' | 'enemy' | 'stinger'): void {
+    // Update streak system first
+    this.updateStreakOnKill();
+
     // Apply power-up multipliers first
     let finalAmount = amount;
     if (this.isScore2()) {
       finalAmount *= 2; // Score x2 power-up
     }
 
-    // Then apply combo multiplier
+    // Then apply combo multiplier (legacy)
     finalAmount *= this.comboLevel;
+
+    // Then apply streak multiplier
+    const streakMultiplier = 1 + (this.currentStreak * SCORE.streakStep);
+    finalAmount *= streakMultiplier;
 
     this.gameState.score += finalAmount;
 
     // Update HUD score with delta for pulse effect
     this.hud.setScore(this.gameState.score, finalAmount);
+    this.hud.setStreak(this.currentStreak);
 
-    this.events.emit('hud:score', this.gameState.score);
+    // Emit events for meta loop system
+    this.gameEvents.emit('enemyKilled', { type: _reason, score: finalAmount });
+    this.gameEvents.emit('scoreUpdated', { score: this.gameState.score, delta: finalAmount });
+    this.gameEvents.emit('streakUpdated', { streak: this.currentStreak });
+  }
+
+  private updateStreakOnKill(): void {
+    const now = this.time.now;
+
+    // Check if kill is within streak window
+    if (this.streakLastKillTime > 0 && (now - this.streakLastKillTime) <= SCORE.streakWindowMs) {
+      this.currentStreak = Math.min(this.currentStreak + 1, SCORE.streakCap);
+    } else {
+      this.currentStreak = 1; // Reset to 1 for first kill or after timeout
+    }
+
+    this.streakLastKillTime = now;
+  }
+
+  private resetStreak(): void {
+    this.currentStreak = 0;
+    this.streakLastKillTime = 0;
+    this.hud.setStreak(0);
+    this.gameEvents.emit('streakUpdated', { streak: 0 });
   }
 
   // Idempotent asteroid destruction with splitting
