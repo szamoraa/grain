@@ -28,7 +28,12 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} min-h-dvh bg-[#0E0F12] text-neutral-200 antialiased`}
       >
-        <div className="fixed right-4 top-3 z-50 text-[12px] leading-none text-white/60 font-medium">
+        <div className="fixed z-50 text-[11px] leading-none text-white/60 font-medium astro-ui"
+             style={{
+               right: 'calc(50vw - 621.5px)',
+               top: '48px',
+               transform: 'translateY(-50%)'
+             }}>
           <span className="mr-1">Designed &amp; crafted by</span>
           <a
             href="https://x.com/santiagozamora"

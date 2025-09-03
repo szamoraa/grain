@@ -36,16 +36,16 @@ export default function SaucerGamePage() {
         {/* Controls and Info Cards */}
         <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4 max-w-[1243px] mx-auto">
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-            <h3 className="text-sm font-semibold text-white/90 mb-2">Desktop Controls</h3>
-            <ul className="text-xs text-white/70 space-y-1">
+            <h3 className="text-sm font-semibold text-white/90 mb-2 astro-ui">Desktop Controls</h3>
+            <ul className="text-xs text-white/70 space-y-1 astro-ui">
               <li>↑ / ↓ or W / S — Move up / down</li>
               <li>Space — Shoot</li>
               <li>R — Restart (after mission)</li>
             </ul>
           </div>
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-            <h3 className="text-sm font-semibold text-white/90 mb-2">Info</h3>
-            <ul className="text-xs text-white/70 space-y-1">
+            <h3 className="text-sm font-semibold text-white/90 mb-2 astro-ui">Info</h3>
+            <ul className="text-xs text-white/70 space-y-1 astro-ui">
               <li>Wave 1 lasts ~40 seconds.</li>
               <li>Big asteroids split into smaller ones when destroyed.</li>
               <li>Small asteroids are faster; big are slower.</li>

@@ -387,7 +387,7 @@ export class SaucerScene extends Phaser.Scene {
     const cy = this.cameras.main.centerY;
 
     const banner = this.add.text(cx, cy, text, {
-      fontFamily: 'monospace',
+      fontFamily: 'AstroUI',
       fontSize: '32px',
       color: '#33ff99',
       align: 'center'
@@ -413,13 +413,13 @@ export class SaucerScene extends Phaser.Scene {
     const cy = this.cameras.main.centerY;
 
     const title = this.add.text(cx, cy - 20, 'MISSION COMPLETE', {
-      fontFamily: 'monospace',
+      fontFamily: 'AstroUI',
       fontSize: '48px',
       color: '#33ff99'
     }).setOrigin(0.5);
 
     const sub = this.add.text(cx, cy + 28, 'Press R to Restart', {
-      fontFamily: 'monospace',
+      fontFamily: 'AstroUI',
       fontSize: '18px',
       color: '#ffffff'
     }).setOrigin(0.5);
