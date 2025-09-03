@@ -20,6 +20,28 @@ export class HUDLayer extends Phaser.GameObjects.Container {
   private ammoThick = 7;          // stroke width
   private ammoMargin = 20;        // from edges
 
+  // Wave Intro Card
+  private introCard!: Phaser.GameObjects.Container;
+  private introBg!: Phaser.GameObjects.Graphics;
+  private introTitle!: Phaser.GameObjects.Text;
+  private introSub!: Phaser.GameObjects.Text;
+
+  // Combo Meter
+  private comboBadge!: Phaser.GameObjects.Container;
+  private comboText!: Phaser.GameObjects.Text;
+  private comboGlow!: Phaser.GameObjects.Graphics;
+
+  // Buff Pills (bottom-center)
+  private buffContainer!: Phaser.GameObjects.Container;
+  private doublePill!: Phaser.GameObjects.Container;
+  private score2Pill!: Phaser.GameObjects.Container;
+
+  // Wave Summary
+  private summaryCard!: Phaser.GameObjects.Container;
+  private summaryBg!: Phaser.GameObjects.Graphics;
+  private summaryTitle!: Phaser.GameObjects.Text;
+  private summaryStats!: Phaser.GameObjects.Text;
+
   // HUD layout constants
   private readonly HUD_MARGIN = 24;     // increased for breathing room
   private readonly SCORE_SCALE = 1.5;     // +50%
@@ -37,6 +59,10 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     this.createScoreCapsule();
     this.createProgressBar();
     this.createAmmoArc();
+    this.createIntroCard();
+    this.createComboBadge();
+    this.createBuffPills();
+    this.createSummaryCard();
 
     // Initial layout
     this.layout();
@@ -45,9 +71,38 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     scene.scale.on('resize', this.layout, this);
 
     // Listen for ammo arc updates
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (scene as any).events.on('hud:ammoArc', ({ratioUsed, reloading}:{ratioUsed:number; reloading:boolean}) => {
+    (scene as Phaser.Scene).events.on('hud:ammoArc', ({ratioUsed, reloading}:{ratioUsed:number; reloading:boolean}) => {
       this.drawAmmoArc(ratioUsed, reloading);
+    });
+
+    // Listen for intro card
+    (scene as Phaser.Scene).events.on('hud:intro', ({title, sub}:{title:string; sub?:string}) => {
+      this.showIntroCard(title, sub);
+    });
+
+    // Listen for combo updates
+    (scene as Phaser.Scene).events.on('hud:combo', ({level}:{level:number}) => {
+      this.updateComboBadge(level);
+    });
+
+    // Listen for buff updates
+    (scene as Phaser.Scene).events.on('hud:buff', (data: {type:string; progress:number; active:boolean}) => {
+      this.updateBuffPill(data.type, data.progress, data.active);
+    });
+
+    // Listen for wave summary
+    (scene as Phaser.Scene).events.on('hud:waveSummary', (data: {waveIndex:number; asteroids:number; enemies:number; accuracy:number; peakCombo:number}) => {
+      this.showWaveSummary(data);
+    });
+
+    // Listen for score pulse
+    (scene as Phaser.Scene).events.on('hud:scorePulse', () => {
+      this.pulseScore();
+    });
+
+    // Listen for progress glow
+    (scene as Phaser.Scene).events.on('hud:progressGlow', (isEndGame: boolean) => {
+      this.setProgressGlow(isEndGame);
     });
 
     scene.add.existing(this);
@@ -155,6 +210,96 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     this.add(this.ammoCtr);
   }
 
+  private createIntroCard(): void {
+    this.introCard = this.scene.add.container(0, 0).setDepth(10001);
+    this.introBg = this.scene.add.graphics();
+    this.introTitle = this.scene.add.text(0, 0, '', {
+      fontFamily: 'monospace',
+      fontSize: '24px',
+      color: '#ffffff',
+      align: 'center'
+    }).setOrigin(0.5);
+    this.introSub = this.scene.add.text(0, 0, '', {
+      fontFamily: 'monospace',
+      fontSize: '16px',
+      color: '#cccccc',
+      align: 'center'
+    }).setOrigin(0.5);
+
+    this.introCard.add([this.introBg, this.introTitle, this.introSub]);
+    this.introCard.setAlpha(0); // Start hidden
+    this.add(this.introCard);
+  }
+
+  private createComboBadge(): void {
+    this.comboBadge = this.scene.add.container(0, 0).setDepth(10001);
+    this.comboGlow = this.scene.add.graphics();
+    this.comboText = this.scene.add.text(0, 0, 'x1', {
+      fontFamily: 'monospace',
+      fontSize: '18px',
+      color: '#ffffff',
+      align: 'center'
+    }).setOrigin(0.5);
+
+    this.comboBadge.add([this.comboGlow, this.comboText]);
+    this.comboBadge.setAlpha(0); // Start hidden
+    this.add(this.comboBadge);
+  }
+
+  private createBuffPills(): void {
+    this.buffContainer = this.scene.add.container(0, 0).setDepth(10001);
+
+    // Double-shot pill
+    this.doublePill = this.scene.add.container(0, 0);
+    const doubleBg = this.scene.add.graphics();
+    doubleBg.fillStyle(0x4a90e2, 0.9);
+    doubleBg.fillRoundedRect(-50, -12, 100, 24, 8);
+    const doubleText = this.scene.add.text(0, 0, 'DOUBLE SHOT', {
+      fontFamily: 'monospace',
+      fontSize: '12px',
+      color: '#ffffff'
+    }).setOrigin(0.5);
+    this.doublePill.add([doubleBg, doubleText]);
+    this.doublePill.setAlpha(0); // Start hidden
+
+    // Score x2 pill
+    this.score2Pill = this.scene.add.container(0, 0);
+    const score2Bg = this.scene.add.graphics();
+    score2Bg.fillStyle(0xe74c3c, 0.9);
+    score2Bg.fillRoundedRect(-40, -12, 80, 24, 8);
+    const score2Text = this.scene.add.text(0, 0, '×2 SCORE', {
+      fontFamily: 'monospace',
+      fontSize: '12px',
+      color: '#ffffff'
+    }).setOrigin(0.5);
+    this.score2Pill.add([score2Bg, score2Text]);
+    this.score2Pill.setAlpha(0); // Start hidden
+
+    this.buffContainer.add([this.doublePill, this.score2Pill]);
+    this.add(this.buffContainer);
+  }
+
+  private createSummaryCard(): void {
+    this.summaryCard = this.scene.add.container(0, 0).setDepth(10001);
+    this.summaryBg = this.scene.add.graphics();
+    this.summaryTitle = this.scene.add.text(0, 0, '', {
+      fontFamily: 'monospace',
+      fontSize: '28px',
+      color: '#ffffff',
+      align: 'center'
+    }).setOrigin(0.5);
+    this.summaryStats = this.scene.add.text(0, 0, '', {
+      fontFamily: 'monospace',
+      fontSize: '16px',
+      color: '#cccccc',
+      align: 'center'
+    }).setOrigin(0.5);
+
+    this.summaryCard.add([this.summaryBg, this.summaryTitle, this.summaryStats]);
+    this.summaryCard.setAlpha(0); // Start hidden
+    this.add(this.summaryCard);
+  }
+
   public setLives(lives: number): void {
     // Show/hide life icons based on current lives
     this.livesIcons.forEach((icon, index) => {
@@ -202,6 +347,14 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     const ammoX = cam.worldView.x + this.ammoMargin + this.ammoR;
     const ammoY = cam.worldView.y + cam.height - this.ammoMargin - this.ammoR;
     this.ammoCtr.setPosition(ammoX, ammoY);
+
+    // Position buff pills at bottom-center
+    const buffY = cam.worldView.y + cam.height - this.ammoMargin - 30;
+    this.doublePill.setPosition(cam.centerX - 60, buffY);
+    this.score2Pill.setPosition(cam.centerX + 60, buffY);
+
+    // Position combo badge near player (will be updated in updateComboBadge)
+    this.updateComboBadgePosition();
   }
 
   public drawProgress(progress: number): void {
@@ -277,6 +430,199 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     g.strokePath();
   }
 
+  // New HUD methods
+  public showIntroCard(title: string, sub?: string): void {
+    this.introTitle.setText(title);
+    this.introSub.setText(sub || '');
+
+    // Create background
+    this.introBg.clear();
+    const titleWidth = Math.max(200, this.introTitle.width + 40);
+    const subWidth = sub ? Math.max(200, this.introSub.width + 40) : 0;
+    const width = Math.max(titleWidth, subWidth);
+    const height = 60 + (sub ? 30 : 0);
+
+    this.introBg.fillStyle(0xffffff, 0.1);
+    this.introBg.fillRoundedRect(-width/2, -height/2, width, height, 16);
+    this.introBg.lineStyle(2, 0xffffff, 0.15);
+    this.introBg.strokeRoundedRect(-width/2, -height/2, width, height, 16);
+
+    // Position text
+    this.introTitle.setPosition(0, sub ? -15 : 0);
+    this.introSub.setPosition(0, 15);
+
+    // Center on screen
+    const cam = this.scene.cameras.main;
+    this.introCard.setPosition(cam.centerX, cam.centerY);
+
+    // Animate in
+    this.introCard.setAlpha(0).setScale(0.95);
+    this.scene.tweens.add({
+      targets: this.introCard,
+      alpha: 1,
+      scale: 1,
+      duration: 400,
+      ease: 'Back.out'
+    });
+
+    // Auto-hide after 1.8s
+    this.scene.time.delayedCall(1800, () => {
+      this.scene.tweens.add({
+        targets: this.introCard,
+        alpha: 0,
+        scale: 0.95,
+        duration: 300,
+        onComplete: () => this.introCard.setAlpha(0)
+      });
+    });
+  }
+
+  public updateComboBadge(level: number): void {
+    if (level <= 1) {
+      this.comboBadge.setAlpha(0);
+      return;
+    }
+
+    this.comboText.setText(`x${level}`);
+    this.updateComboBadgePosition();
+
+    // Update glow based on level
+    this.comboGlow.clear();
+    const glowSize = 20 + level * 5;
+    this.comboGlow.fillStyle(0xffffff, 0.3);
+    this.comboGlow.fillCircle(0, 0, glowSize);
+
+    // Animate in
+    this.comboBadge.setAlpha(0).setScale(0.8);
+    this.scene.tweens.add({
+      targets: this.comboBadge,
+      alpha: 1,
+      scale: 1,
+      duration: 200,
+      ease: 'Back.out'
+    });
+
+    // Pulse animation
+    this.scene.tweens.add({
+      targets: this.comboGlow,
+      alpha: { from: 0.3, to: 0.6 },
+      scale: { from: 1, to: 1.2 },
+      duration: 600,
+      yoyo: true,
+      repeat: -1,
+      ease: 'sine.inOut'
+    });
+  }
+
+  private updateComboBadgePosition(): void {
+    // Position near player (simplified - would need player position from scene)
+    const cam = this.scene.cameras.main;
+    this.comboBadge.setPosition(cam.centerX + 100, cam.centerY - 50);
+  }
+
+  public updateBuffPill(type: string, progress: number, active: boolean): void {
+    const pill = type === 'double' ? this.doublePill : this.score2Pill;
+
+    if (!active) {
+      pill.setAlpha(0);
+      return;
+    }
+
+    pill.setAlpha(1);
+
+    // Update progress bar on pill
+    const pillBg = pill.getAt(0) as Phaser.GameObjects.Graphics;
+    pillBg.clear();
+
+    const color = type === 'double' ? 0x4a90e2 : 0xe74c3c;
+    const width = type === 'double' ? 100 : 80;
+    const height = 24;
+
+    // Background
+    pillBg.fillStyle(color, 0.9);
+    pillBg.fillRoundedRect(-width/2, -height/2, width, height, 8);
+
+    // Progress bar (top)
+    const progressWidth = width * progress;
+    pillBg.fillStyle(0xffffff, 0.8);
+    pillBg.fillRoundedRect(-width/2, -height/2, progressWidth, 3, 2);
+  }
+
+  public showWaveSummary(data: {waveIndex:number; asteroids:number; enemies:number; accuracy:number; peakCombo:number}): void {
+    this.summaryTitle.setText(`Wave ${data.waveIndex} Complete!`);
+
+    const stats = [
+      `Asteroids destroyed: ${data.asteroids}`,
+      `Enemies destroyed: ${data.enemies}`,
+      `Accuracy: ${data.accuracy}%`,
+      `Combo Peak: x${data.peakCombo}`
+    ];
+    this.summaryStats.setText(stats.join('\n'));
+
+    // Create background
+    this.summaryBg.clear();
+    const width = 300;
+    const height = 120;
+    this.summaryBg.fillStyle(0xffffff, 0.1);
+    this.summaryBg.fillRoundedRect(-width/2, -height/2, width, height, 16);
+    this.summaryBg.lineStyle(2, 0xffffff, 0.15);
+    this.summaryBg.strokeRoundedRect(-width/2, -height/2, width, height, 16);
+
+    // Position text
+    this.summaryTitle.setPosition(0, -35);
+    this.summaryStats.setPosition(0, 10);
+
+    // Center on screen
+    const cam = this.scene.cameras.main;
+    this.summaryCard.setPosition(cam.centerX, cam.centerY);
+
+    // Animate in
+    this.summaryCard.setAlpha(0);
+    this.scene.tweens.add({
+      targets: this.summaryCard,
+      alpha: 1,
+      duration: 500,
+      ease: 'Power2.out'
+    });
+
+    // Auto-hide after 1.5s
+    this.scene.time.delayedCall(1500, () => {
+      this.scene.tweens.add({
+        targets: this.summaryCard,
+        alpha: 0,
+        duration: 300,
+        onComplete: () => this.summaryCard.setAlpha(0)
+      });
+    });
+  }
+
+  public pulseScore(): void {
+    this.scene.tweens.add({
+      targets: this.scoreCapsule,
+      scaleX: 1.06,
+      scaleY: 1.06,
+      duration: 150,
+      yoyo: true,
+      ease: 'Power2.out'
+    });
+  }
+
+  public setProgressGlow(isEndGame: boolean): void {
+    if (isEndGame) {
+      this.scene.tweens.add({
+        targets: this.progressBarGlow,
+        alpha: { from: 0.1, to: 0.3 },
+        duration: 1000,
+        yoyo: true,
+        repeat: -1,
+        ease: 'sine.inOut'
+      });
+    } else {
+      this.progressBarGlow.alpha = 0.1;
+      this.scene.tweens.killTweensOf(this.progressBarGlow);
+    }
+  }
+
   public destroy(): void {
     // Clean up all graphics objects
     this.progressBarTrack.destroy();
@@ -286,10 +632,24 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     this.ammoTrack.destroy();
     this.ammoFill.destroy();
     this.ammoGlow.destroy();
+    this.introBg.destroy();
+    this.comboGlow.destroy();
+    this.summaryBg.destroy();
+
+    // Clean up text objects
+    this.introTitle.destroy();
+    this.introSub.destroy();
+    this.comboText.destroy();
+    this.summaryTitle.destroy();
+    this.summaryStats.destroy();
 
     // Clean up containers
     this.scoreCapsule.destroy();
     this.ammoCtr.destroy();
+    this.introCard.destroy();
+    this.comboBadge.destroy();
+    this.buffContainer.destroy();
+    this.summaryCard.destroy();
 
     // Clean up life icons
     this.livesIcons.forEach(icon => icon.destroy());

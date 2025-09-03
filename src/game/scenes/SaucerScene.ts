@@ -59,6 +59,25 @@ const AMMO_MAX = 20;
 const RELOAD_MS = 3500; // exact spec
 const AMMO_ARC_EVENT = 'hud:ammoArc';
 
+// Combo system
+const COMBO_WINDOW_MS = 1800;
+const COMBO_MAX = 4;
+
+// Power-ups
+const PWR_DOUBLE_MS = 10000;
+const PWR_SCORE2_MS = 15000;
+const PWR_DROP_CHANCE = 0.20; // per big split
+
+// Death sequence
+const DEATH_SLOWMO_MS = 500;
+const DEATH_TOTAL_MS = 1000;
+
+// HUD events
+const HUD_INTRO_EVENT = 'hud:intro';
+const HUD_COMBO_EVENT = 'hud:combo';
+const HUD_BUFF_EVENT = 'hud:buff';
+const HUD_WAVE_SUMMARY_EVENT = 'hud:waveSummary';
+
 // Wave system constants
 const SHOW_COMPLETE_BANNER_MS = 1200; // brief pause before restart option
 const INTER_WAVE_MS = 1200; // 1.2s quiet gap between waves
@@ -221,6 +240,19 @@ export class SaucerScene extends Phaser.Scene {
   reloading = false;    // true during cooldown
   reloadStartTime = 0;
 
+  // Combo system
+  comboLevel = 1;
+  comboTimerMs = 0;
+
+  // Power-ups
+  buffDoubleShotUntil = 0;
+  buffScore2Until = 0;
+
+  // Statistics tracking
+  shotsFired = 0;
+  shotsHit = 0;
+  peakCombo = 1;
+
 
 
   // HUD
@@ -246,10 +278,16 @@ export class SaucerScene extends Phaser.Scene {
     this.stopAllSpawnTimers();
     this.startWaveSpawners(spec);
 
-    // Show brief wave intro banner for Wave 2
-    if (i > 0) {
-      this.showCenterBanner(`Wave ${i + 1}`, 700);
+    // Show wave intro card
+    const introTitle = `Wave ${i + 1}`;
+    let introSub = '';
+    if (i === 0) {
+      introSub = 'Survive 40s';
+    } else if (i === 1) {
+      introSub = 'Enemies fire faster (+20%)';
     }
+
+    this.events.emit(HUD_INTRO_EVENT, { title: introTitle, sub: introSub });
   }
 
   private endWave() {
@@ -268,16 +306,22 @@ export class SaucerScene extends Phaser.Scene {
       });
     });
 
-    // Inter-wave banner + quiet gap
-    this.showCenterBanner(`Wave ${this.currentWaveIndex + 1} Complete`, 700);
+    // Emit wave summary
+    const accuracy = this.shotsFired > 0 ? Math.round((this.shotsHit / this.shotsFired) * 100) : 0;
+    this.events.emit(HUD_WAVE_SUMMARY_EVENT, {
+      waveIndex: this.currentWaveIndex + 1,
+      asteroids: this.gameState.asteroidKills,
+      enemies: this.gameState.enemyKills,
+      accuracy,
+      peakCombo: this.peakCombo
+    });
 
-    this.time.delayedCall(INTER_WAVE_MS, () => {
+    this.time.delayedCall(1500, () => { // Show summary for 1.5s
       this.inInterWave = false;
 
       if (this.currentWaveIndex + 1 < WAVES.length) {
         // Start next wave fresh
         this.startWave(this.currentWaveIndex + 1);
-        this.showCenterBanner(`Wave ${this.currentWaveIndex + 1} Start`, 700);
       } else {
         // No more waves
         this.finishMission();
@@ -404,6 +448,9 @@ export class SaucerScene extends Phaser.Scene {
 
     // Initialize ammo system
     this.emitAmmoArc();
+
+    // Initialize combo system
+    this.emitCombo();
   }
 
   update(time: number, delta: number): void {
@@ -441,6 +488,15 @@ export class SaucerScene extends Phaser.Scene {
 
     // Update ammo arc during reload for smooth animation
     if (this.reloading) this.emitAmmoArc();
+
+    // Update combo decay
+    if (this.comboLevel > 1 && time > this.comboTimerMs) {
+      this.comboLevel = 1;
+      this.emitCombo();
+    }
+
+    // Update power-up timers and emit HUD updates
+    this.updatePowerUpTimers();
   }
 
   // Initialize simple background
@@ -667,8 +723,105 @@ export class SaucerScene extends Phaser.Scene {
     this.updateHUD();
 
     if (this.gameState.lives <= 0) {
-      this.gameOver();
+      this.beginDeathSequence();
     }
+  }
+
+  // Cinematic death sequence
+  private beginDeathSequence(): void {
+    // Stop input and firing
+    if (this.input.keyboard) {
+      this.input.keyboard.enabled = false;
+    }
+    this.spawningEnabled = false;
+    this.stopAllSpawnTimers();
+
+    // Disable player collisions
+    if (this.player.sprite.body && this.player.sprite.body instanceof Phaser.Physics.Arcade.Body) {
+      (this.player.sprite.body as Phaser.Physics.Arcade.Body).enable = false;
+    }
+
+    // Camera effects
+    this.cameras.main.shake(250, 0.004);
+    this.tweens.add({
+      targets: this.cameras.main,
+      zoom: 1.2,
+      duration: DEATH_SLOWMO_MS,
+      ease: 'Power2'
+    });
+
+    // Time slow effect
+    this.time.timeScale = 0.6;
+    this.time.delayedCall(DEATH_SLOWMO_MS, () => {
+      this.time.timeScale = 1.0;
+    });
+
+    // Explosion effects
+    const px = this.player.sprite.x;
+    const py = this.player.sprite.y;
+
+    // Create expanding circles
+    for (let i = 0; i < 3; i++) {
+      this.time.delayedCall(i * 100, () => {
+        const circle = this.add.graphics();
+        circle.fillStyle(0xffa500, 0.8);
+        circle.fillCircle(px, py, 5);
+        circle.setDepth(999);
+
+        this.tweens.add({
+          targets: circle,
+          scaleX: 8,
+          scaleY: 8,
+          alpha: 0,
+          duration: 400,
+          ease: 'Power2',
+          onComplete: () => circle.destroy()
+        });
+      });
+    }
+
+    // Particle burst
+    for (let i = 0; i < 12; i++) {
+      const angle = (i / 12) * Math.PI * 2;
+      const distance = 30;
+      const particle = this.add.graphics();
+      particle.fillStyle(0xffffff, 0.9);
+      particle.fillCircle(px + Math.cos(angle) * distance, py + Math.sin(angle) * distance, 3);
+      particle.setDepth(999);
+
+      this.tweens.add({
+        targets: particle,
+        x: px + Math.cos(angle) * 100,
+        y: py + Math.sin(angle) * 100,
+        alpha: 0,
+        duration: 600,
+        ease: 'Power2',
+        onComplete: () => particle.destroy()
+      });
+    }
+
+    // White flash
+    const flash = this.add.graphics();
+    flash.fillStyle(0xffffff, 1);
+    flash.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    flash.setDepth(1000);
+    flash.setAlpha(0);
+
+    this.tweens.add({
+      targets: flash,
+      alpha: 0.8,
+      duration: 120,
+      yoyo: true,
+      onComplete: () => flash.destroy()
+    });
+
+    // Play explosion sound
+    sfx.explosionLarge();
+
+    // After sequence, show game over
+    this.time.delayedCall(DEATH_TOTAL_MS, () => {
+      this.gameOver();
+    });
   }
 
   // Game over
@@ -833,16 +986,37 @@ export class SaucerScene extends Phaser.Scene {
         onComplete: () => particle.destroy()
       });
     }
+
+    // Kill sparkles - tiny white particles
+    for (let i = 0; i < 6; i++) {
+      const sparkle = this.add.graphics();
+      sparkle.fillStyle(0xffffff, 0.8);
+      sparkle.fillCircle(x + Phaser.Math.Between(-10, 10), y + Phaser.Math.Between(-10, 10), 2);
+      sparkle.setDepth(999);
+
+      this.tweens.add({
+        targets: sparkle,
+        alpha: 0,
+        scaleX: 0.5,
+        scaleY: 0.5,
+        duration: 200,
+        onComplete: () => sparkle.destroy()
+      });
+    }
   }
 
   // Shoot laser
-  private spawnPlayerLaser(): void {
+  private spawnPlayerLaser(isDoubleShot = false): void {
     this.lastShotTime = this.time.now;
 
+    // For double-shot, offset the second laser slightly
+    const offsetX = isDoubleShot ? 8 : 0;
+    const offsetY = isDoubleShot ? 3 : 0;
+
     const projectile: Projectile = {
-      sprite: this.physics.add.sprite(PLAYER_X + 30, this.player.y, 'playerLaser'),
-      x: PLAYER_X + 30,
-      y: this.player.y,
+      sprite: this.physics.add.sprite(PLAYER_X + 30 + offsetX, this.player.y + offsetY, 'playerLaser'),
+      x: PLAYER_X + 30 + offsetX,
+      y: this.player.y + offsetY,
     };
 
     projectile.sprite.setScale(0.8);
@@ -940,6 +1114,10 @@ export class SaucerScene extends Phaser.Scene {
     // Update HUD progress
     this.hud.drawProgress(progress);
 
+    // Progress bar glow effect during last 15%
+    const isEndGame = progress >= 0.85;
+    this.events.emit('hud:progressGlow', isEndGame);
+
     // Check for wave completion
     if (!this.inInterWave && progress >= 1) {
       this.endWave();
@@ -957,6 +1135,65 @@ export class SaucerScene extends Phaser.Scene {
     if (this.shieldTimer) {
       this.shieldTimer.remove();
     }
+  }
+
+  // Combo methods
+  private emitCombo() {
+    this.events.emit(HUD_COMBO_EVENT, { level: this.comboLevel });
+  }
+
+  private updateComboOnKill() {
+    this.comboLevel = Math.min(this.comboLevel + 1, COMBO_MAX);
+    this.comboTimerMs = this.time.now + COMBO_WINDOW_MS;
+    this.peakCombo = Math.max(this.peakCombo, this.comboLevel);
+    this.emitCombo();
+  }
+
+  // Power-up methods
+  private isDoubleShot() {
+    return this.time.now < this.buffDoubleShotUntil;
+  }
+
+  private isScore2() {
+    return this.time.now < this.buffScore2Until;
+  }
+
+  private updatePowerUpTimers() {
+    // Emit buff updates for active power-ups
+    if (this.isDoubleShot()) {
+      const progress = 1 - ((this.buffDoubleShotUntil - this.time.now) / PWR_DOUBLE_MS);
+      this.events.emit(HUD_BUFF_EVENT, { type: 'double', progress: Phaser.Math.Clamp(progress, 0, 1), active: true });
+    } else if (this.buffDoubleShotUntil > 0) {
+      this.buffDoubleShotUntil = 0;
+      this.events.emit(HUD_BUFF_EVENT, { type: 'double', progress: 0, active: false });
+    }
+
+    if (this.isScore2()) {
+      const progress = 1 - ((this.buffScore2Until - this.time.now) / PWR_SCORE2_MS);
+      this.events.emit(HUD_BUFF_EVENT, { type: 'score2', progress: Phaser.Math.Clamp(progress, 0, 1), active: true });
+    } else if (this.buffScore2Until > 0) {
+      this.buffScore2Until = 0;
+      this.events.emit(HUD_BUFF_EVENT, { type: 'score2', progress: 0, active: false });
+    }
+  }
+
+  private activateDoubleShot() {
+    this.buffDoubleShotUntil = this.time.now + PWR_DOUBLE_MS;
+    this.events.emit(HUD_BUFF_EVENT, { type: 'double', progress: 0, active: true });
+  }
+
+  private activateScore2() {
+    this.buffScore2Until = this.time.now + PWR_SCORE2_MS;
+    this.events.emit(HUD_BUFF_EVENT, { type: 'score2', progress: 0, active: true });
+  }
+
+  // Statistics tracking
+  private trackShotFired() {
+    this.shotsFired++;
+  }
+
+  private trackShotHit() {
+    this.shotsHit++;
   }
 
   // Ammo methods
@@ -989,6 +1226,15 @@ export class SaucerScene extends Phaser.Scene {
 
     // Spawn bullet as you already do
     this.spawnPlayerLaser();
+    this.trackShotFired();
+
+    // Double-shot power-up: spawn second laser
+    if (this.isDoubleShot()) {
+      this.time.delayedCall(50, () => { // Small delay for visual effect
+        this.spawnPlayerLaser(true); // offset for double-shot
+        this.trackShotFired();
+      });
+    }
 
     this.shotsUsed = Math.min(AMMO_MAX, this.shotsUsed + 1);
     this.emitAmmoArc();
@@ -1016,10 +1262,17 @@ export class SaucerScene extends Phaser.Scene {
 
     if (kind === 'shield') this.activateShield(SHIELD_DURATION_MS);
     if (kind === 'life') this.addLife(1);
+    if (kind === 'double') this.activateDoubleShot();
+    if (kind === 'score2') this.activateScore2();
   };
 
-  private spawnPowerup(x: number, y: number, kind: 'shield' | 'life') {
-    const key = kind === 'shield' ? 'pwr_shield' : 'pwr_life';
+  private spawnPowerup(x: number, y: number, kind: 'shield' | 'life' | 'double' | 'score2') {
+    let key = '';
+    if (kind === 'shield') key = 'pwr_shield';
+    else if (kind === 'life') key = 'pwr_life';
+    else if (kind === 'double') key = 'pwr_double';
+    else if (kind === 'score2') key = 'pwr_score2';
+
     const pu = this.powerups.get(x, y, key) as Phaser.Physics.Arcade.Sprite;
     if (!pu) return;
 
@@ -1051,8 +1304,15 @@ export class SaucerScene extends Phaser.Scene {
 
   private maybeDropFromBigAsteroid(x: number, y: number) {
     const roll = Math.random();
-    if (roll < 0.10) return this.spawnPowerup(x, y, 'shield'); // 10%
-    if (roll < 0.15) return this.spawnPowerup(x, y, 'life');   // next 5%
+    if (roll < PWR_DROP_CHANCE) {
+      // Split chance between double-shot and score2
+      const subRoll = Math.random();
+      if (subRoll < 0.5) {
+        this.spawnPowerup(x, y, 'double');
+      } else {
+        this.spawnPowerup(x, y, 'score2');
+      }
+    }
   }
 
   // Shield mechanics
@@ -1127,7 +1387,21 @@ export class SaucerScene extends Phaser.Scene {
 
   // Idempotent score awarding
   private awardScore(amount: number, reason: 'asteroid' | 'enemy'): void {
-    this.gameState.score += amount;
+    // Apply power-up multipliers first
+    let finalAmount = amount;
+    if (this.isScore2()) {
+      finalAmount *= 2; // Score x2 power-up
+    }
+
+    // Then apply combo multiplier
+    finalAmount *= this.comboLevel;
+
+    this.gameState.score += finalAmount;
+
+    // Score pulse effect for large scores
+    if (finalAmount >= 1000) {
+      this.events.emit('hud:scorePulse');
+    }
 
     // Update HUD score
     this.hud.setScore(this.gameState.score);
@@ -1154,7 +1428,8 @@ export class SaucerScene extends Phaser.Scene {
     ast.destroy(); // remove from scene
     this.createExplosion(ast.x, ast.y);
     this.gameState.asteroidKills++;
-    this.awardScore(100, 'asteroid');
+    this.updateComboOnKill();
+    this.awardScore(POINT_ASTEROID, 'asteroid');
     this.updateHUD();
   }
 
@@ -1193,7 +1468,9 @@ export class SaucerScene extends Phaser.Scene {
     e.destroy(); // remove from scene
     this.createExplosion(e.x, e.y);
     this.gameState.enemyKills++;
-    this.awardScore(1000, 'enemy');
+    this.trackShotHit(); // Track successful hits for accuracy
+    this.updateComboOnKill();
+    this.awardScore(POINT_ENEMY, 'enemy');
     this.updateHUD();
   }
 
