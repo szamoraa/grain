@@ -138,3 +138,4 @@ class LeaderboardManager {
 export const leaderboard = new LeaderboardManager();
 
 export type { LeaderboardEntry };
+

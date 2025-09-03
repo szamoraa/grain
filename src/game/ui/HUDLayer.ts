@@ -26,10 +26,7 @@ export class HUDLayer extends Phaser.GameObjects.Container {
   private introTitle!: Phaser.GameObjects.Text;
   private introSub!: Phaser.GameObjects.Text;
 
-  // Combo Meter
-  private comboBadge!: Phaser.GameObjects.Container;
-  private comboText!: Phaser.GameObjects.Text;
-  private comboGlow!: Phaser.GameObjects.Graphics;
+
 
   // Buff Pills (bottom-center)
   private buffContainer!: Phaser.GameObjects.Container;
@@ -46,6 +43,18 @@ export class HUDLayer extends Phaser.GameObjects.Container {
   private readonly HUD_MARGIN = 24;     // increased for breathing room
   private readonly SCORE_SCALE = 1.5;     // +50%
   private readonly LIVES_ICON_SCALE = 3.0; // 300%
+
+  // Wave theme colors
+  private readonly WAVE_THEME = {
+    1: { accent: 0x7FB7FF }, // blue
+    2: { accent: 0xB08CFF }, // purple
+    3: { accent: 0xFF7A7A }, // red
+  } as const;
+
+  private currentAccent = 0x7FB7FF; // default to wave 1 blue
+
+  // Threat indicators
+  private threatIndicators: Phaser.GameObjects.Graphics[] = [];
   private readonly LIVES_GAP_BASE = 6;    // base gap before scaling
 
   constructor(scene: Phaser.Scene) {
@@ -60,9 +69,9 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     this.createProgressBar();
     this.createAmmoArc();
     this.createIntroCard();
-    this.createComboBadge();
     this.createBuffPills();
     this.createSummaryCard();
+    this.createThreatIndicators();
 
     // Initial layout
     this.layout();
@@ -80,9 +89,24 @@ export class HUDLayer extends Phaser.GameObjects.Container {
       this.showIntroCard(title, sub);
     });
 
-    // Listen for combo updates
-    (scene as Phaser.Scene).events.on('hud:combo', ({level}:{level:number}) => {
-      this.updateComboBadge(level);
+    // Listen for wave theme updates
+    (scene as Phaser.Scene).events.on('hud:waveTheme', ({waveIndex}:{waveIndex:number}) => {
+      this.updateWaveTheme(waveIndex);
+    });
+
+    // Listen for threat indicators
+    (scene as Phaser.Scene).events.on('hud:threat', ({side, ttl}:{side:string, ttl:number}) => {
+      this.showThreatIndicator(side, ttl);
+    });
+
+    // Listen for celebration
+    (scene as Phaser.Scene).events.on('hud:celebrate', ({waveIndex}:{waveIndex:number}) => {
+      this.celebrateWave(waveIndex);
+    });
+
+    // Listen for ripple effects
+    (scene as Phaser.Scene).events.on('hud:ripple', ({kind}:{kind:string}) => {
+      this.showRipple(kind);
     });
 
     // Listen for buff updates
@@ -131,7 +155,7 @@ export class HUDLayer extends Phaser.GameObjects.Container {
       0, 0,
       'Score: 0',
       {
-        fontFamily: 'monospace',
+        fontFamily: 'AstroUI',
         fontSize: `${Math.round(12 * this.SCORE_SCALE)}px`, // 18px (1.5x larger)
         color: '#ffffff'
       }
@@ -214,13 +238,13 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     this.introCard = this.scene.add.container(0, 0).setDepth(10001);
     this.introBg = this.scene.add.graphics();
     this.introTitle = this.scene.add.text(0, 0, '', {
-      fontFamily: 'monospace',
+      fontFamily: 'AstroUI',
       fontSize: '24px',
       color: '#ffffff',
       align: 'center'
     }).setOrigin(0.5);
     this.introSub = this.scene.add.text(0, 0, '', {
-      fontFamily: 'monospace',
+      fontFamily: 'AstroUI',
       fontSize: '16px',
       color: '#cccccc',
       align: 'center'
@@ -231,19 +255,14 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     this.add(this.introCard);
   }
 
-  private createComboBadge(): void {
-    this.comboBadge = this.scene.add.container(0, 0).setDepth(10001);
-    this.comboGlow = this.scene.add.graphics();
-    this.comboText = this.scene.add.text(0, 0, 'x1', {
-      fontFamily: 'monospace',
-      fontSize: '18px',
-      color: '#ffffff',
-      align: 'center'
-    }).setOrigin(0.5);
-
-    this.comboBadge.add([this.comboGlow, this.comboText]);
-    this.comboBadge.setAlpha(0); // Start hidden
-    this.add(this.comboBadge);
+  private createThreatIndicators(): void {
+    // Pre-create threat indicators pool
+    for (let i = 0; i < 8; i++) {
+      const indicator = this.scene.add.graphics().setDepth(10001);
+      indicator.setAlpha(0);
+      this.threatIndicators.push(indicator);
+      this.add(indicator);
+    }
   }
 
   private createBuffPills(): void {
@@ -255,7 +274,7 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     doubleBg.fillStyle(0x4a90e2, 0.9);
     doubleBg.fillRoundedRect(-50, -12, 100, 24, 8);
     const doubleText = this.scene.add.text(0, 0, 'DOUBLE SHOT', {
-      fontFamily: 'monospace',
+      fontFamily: 'AstroUI',
       fontSize: '12px',
       color: '#ffffff'
     }).setOrigin(0.5);
@@ -268,7 +287,7 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     score2Bg.fillStyle(0xe74c3c, 0.9);
     score2Bg.fillRoundedRect(-40, -12, 80, 24, 8);
     const score2Text = this.scene.add.text(0, 0, '×2 SCORE', {
-      fontFamily: 'monospace',
+      fontFamily: 'AstroUI',
       fontSize: '12px',
       color: '#ffffff'
     }).setOrigin(0.5);
@@ -283,13 +302,13 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     this.summaryCard = this.scene.add.container(0, 0).setDepth(10001);
     this.summaryBg = this.scene.add.graphics();
     this.summaryTitle = this.scene.add.text(0, 0, '', {
-      fontFamily: 'monospace',
+      fontFamily: 'AstroUI',
       fontSize: '28px',
       color: '#ffffff',
       align: 'center'
     }).setOrigin(0.5);
     this.summaryStats = this.scene.add.text(0, 0, '', {
-      fontFamily: 'monospace',
+      fontFamily: 'AstroUI',
       fontSize: '16px',
       color: '#cccccc',
       align: 'center'
@@ -300,18 +319,59 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     this.add(this.summaryCard);
   }
 
-  public setLives(lives: number): void {
+  public setLives(lives: number, lost: boolean = false): void {
     // Show/hide life icons based on current lives
     this.livesIcons.forEach((icon, index) => {
       icon.setVisible(index < lives);
     });
+
+    // Wobble animation when losing a life
+    if (lost) {
+      this.scene.tweens.add({
+        targets: this.livesIcons.filter(icon => icon.visible),
+        rotation: { from: -0.1, to: 0.1 },
+        y: { from: -2, to: 2 },
+        duration: 220,
+        yoyo: true,
+        ease: 'Back.out'
+      });
+    }
+
     this.layout(); // Re-layout after visibility changes
   }
 
-  public setScore(score: number): void {
+  public setScore(score: number, delta: number = 0): void {
     this.scoreText.setText(`Score: ${score}`);
     this.drawScoreBg(); // Redraw background to fit new text
     this.layout(); // Re-layout after text changes
+
+    // Pulse animation for big score gains
+    if (delta >= 1000) {
+      this.scene.tweens.add({
+        targets: this.scoreCapsule,
+        scaleX: 1.06,
+        scaleY: 1.06,
+        duration: 90,
+        yoyo: true,
+        ease: 'Power2.out'
+      });
+
+      // Add quick radial glow
+      const glow = this.scene.add.graphics().setDepth(999);
+      glow.fillStyle(this.currentAccent, 0.3);
+      glow.fillCircle(0, 0, 30);
+      glow.setPosition(this.scoreCapsule.x, this.scoreCapsule.y);
+
+      this.scene.tweens.add({
+        targets: glow,
+        alpha: 0,
+        scaleX: 1.5,
+        scaleY: 1.5,
+        duration: 120,
+        ease: 'Power2.out',
+        onComplete: () => glow.destroy()
+      });
+    }
   }
 
   private layout(): void {
@@ -353,8 +413,7 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     this.doublePill.setPosition(cam.centerX - 60, buffY);
     this.score2Pill.setPosition(cam.centerX + 60, buffY);
 
-    // Position combo badge near player (will be updated in updateComboBadge)
-    this.updateComboBadgePosition();
+
   }
 
   public drawProgress(progress: number): void {
@@ -372,20 +431,28 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     const trackX = (this.scene.cameras.main.width - this.progressWidth) / 2;
     const trackY = this.HUD_MARGIN;
 
-    // Draw fill
-    this.progressBarFill.fillStyle(0xffffff, 0.9);
+    // Draw fill with current accent color
+    this.progressBarFill.fillStyle(this.currentAccent, 0.9);
     this.progressBarFill.fillRoundedRect(trackX, trackY, fillWidth, this.progressHeight, 3);
 
-    // Draw glow effect (slightly larger and more transparent)
+    // Draw glow effect (enhanced for end game)
     const glowWidth = Math.min(fillWidth + 20, this.progressWidth);
     const glowOffset = Math.max(0, (fillWidth + 20 - this.progressWidth) / 2);
 
-    this.progressBarGlow.fillStyle(0xffffff, 0.2);
-    this.progressBarGlow.fillRoundedRect(trackX - glowOffset, trackY - 1, glowWidth, this.progressHeight + 2, 4);
+    if (clampedProgress >= 0.85) {
+      // Enhanced glow for end game
+      this.progressBarGlow.fillStyle(this.currentAccent, 0.4);
+      this.progressBarGlow.fillRoundedRect(trackX - glowOffset, trackY - 1, glowWidth, this.progressHeight + 2, 4);
 
-    // Add pulsing animation to glow
-    const pulseAlpha = 0.2 + Math.sin(this.scene.time.now * 0.005) * 0.1;
-    this.progressBarGlow.alpha = pulseAlpha;
+      // Add pulsing animation
+      const pulseAlpha = 0.4 + Math.sin(this.scene.time.now * 0.008) * 0.2;
+      this.progressBarGlow.alpha = pulseAlpha;
+    } else {
+      // Normal glow
+      this.progressBarGlow.fillStyle(0xffffff, 0.2);
+      this.progressBarGlow.fillRoundedRect(trackX - glowOffset, trackY - 1, glowWidth, this.progressHeight + 2, 4);
+      this.progressBarGlow.alpha = 0.2;
+    }
   }
 
   private drawAmmoArc(ratioUsed: number, reloading: boolean): void {
@@ -408,6 +475,32 @@ export class HUDLayer extends Phaser.GameObjects.Container {
 
     // Subtle glow trail (slightly larger radius, lower alpha)
     this.drawArc(this.ammoGlow, this.ammoR + 2, 2, start, end, color, 0.35);
+
+    // Reload tilt animation and steam particles
+    if (reloading) {
+      const tiltAngle = Math.sin(this.scene.time.now * 0.02) * 0.05;
+      this.ammoCtr.setRotation(tiltAngle);
+
+      // Add steam particles occasionally
+      if (Math.random() < 0.3) {
+        const steam = this.scene.add.graphics().setDepth(10001);
+        steam.fillStyle(0xFFFFFF, 0.4);
+        steam.fillCircle(0, 0, 2);
+        steam.setPosition(this.ammoCtr.x, this.ammoCtr.y - 15);
+
+        this.scene.tweens.add({
+          targets: steam,
+          y: steam.y - 20,
+          alpha: 0,
+          scale: 0.5,
+          duration: 400,
+          ease: 'Power2.out',
+          onComplete: () => steam.destroy()
+        });
+      }
+    } else {
+      this.ammoCtr.setRotation(0);
+    }
 
     // Reload pulse: quick alpha shimmer when reloading or just emptied
     if (reloading || ratioUsed >= 1) {
@@ -477,47 +570,22 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     });
   }
 
-  public updateComboBadge(level: number): void {
-    if (level <= 1) {
-      this.comboBadge.setAlpha(0);
-      return;
-    }
+  public updateWaveTheme(waveIndex: number): void {
+    const theme = this.WAVE_THEME[waveIndex as keyof typeof this.WAVE_THEME] || this.WAVE_THEME[1];
+    this.currentAccent = theme.accent;
 
-    this.comboText.setText(`x${level}`);
-    this.updateComboBadgePosition();
-
-    // Update glow based on level
-    this.comboGlow.clear();
-    const glowSize = 20 + level * 5;
-    this.comboGlow.fillStyle(0xffffff, 0.3);
-    this.comboGlow.fillCircle(0, 0, glowSize);
-
-    // Animate in
-    this.comboBadge.setAlpha(0).setScale(0.8);
-    this.scene.tweens.add({
-      targets: this.comboBadge,
-      alpha: 1,
-      scale: 1,
-      duration: 200,
-      ease: 'Back.out'
-    });
-
-    // Pulse animation
-    this.scene.tweens.add({
-      targets: this.comboGlow,
-      alpha: { from: 0.3, to: 0.6 },
-      scale: { from: 1, to: 1.2 },
-      duration: 600,
-      yoyo: true,
-      repeat: -1,
-      ease: 'sine.inOut'
-    });
+    // Update existing UI elements with new accent color
+    this.updateAccentColors();
   }
 
-  private updateComboBadgePosition(): void {
-    // Position near player (simplified - would need player position from scene)
-    const cam = this.scene.cameras.main;
-    this.comboBadge.setPosition(cam.centerX + 100, cam.centerY - 50);
+  private updateAccentColors(): void {
+    // Update score capsule glow
+    if (this.scoreBg) {
+      // We'll implement this in the score capsule creation method
+    }
+
+    // Update progress bar glow
+    // This will be updated in drawProgress
   }
 
   public updateBuffPill(type: string, progress: number, active: boolean): void {
@@ -623,6 +691,139 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     }
   }
 
+  public showThreatIndicator(side: string, ttl: number): void {
+    // Find an available indicator
+    const indicator = this.threatIndicators.find(ind => ind.alpha === 0);
+    if (!indicator) return;
+
+    const cam = this.scene.cameras.main;
+    let x = 0, y = 0, rotation = 0;
+
+    // Position based on side
+    switch (side) {
+      case 'left':
+        x = cam.worldView.x + 20;
+        y = cam.centerY;
+        rotation = Math.PI / 2;
+        break;
+      case 'right':
+        x = cam.worldView.x + cam.width - 20;
+        y = cam.centerY;
+        rotation = -Math.PI / 2;
+        break;
+      case 'top':
+        x = cam.centerX;
+        y = cam.worldView.y + 20;
+        rotation = Math.PI;
+        break;
+    }
+
+    // Draw chevron
+    indicator.clear();
+    indicator.fillStyle(this.currentAccent, 0.8);
+    indicator.beginPath();
+    indicator.moveTo(0, -8);
+    indicator.lineTo(8, 8);
+    indicator.lineTo(-8, 8);
+    indicator.closePath();
+    indicator.fill();
+
+    // Position and animate
+    indicator.setPosition(x, y).setRotation(rotation);
+    indicator.setAlpha(0);
+
+    this.scene.tweens.add({
+      targets: indicator,
+      alpha: 0.8,
+      duration: 90,
+      ease: 'Power2.out',
+      onComplete: () => {
+        // Float toward center
+        const floatX = side === 'left' ? 8 : side === 'right' ? -8 : 0;
+        const floatY = side === 'top' ? 8 : 0;
+
+        this.scene.tweens.add({
+          targets: indicator,
+          x: x + floatX,
+          y: y + floatY,
+          duration: 300,
+          ease: 'Power2.out'
+        });
+
+        // Fade out
+        this.scene.tweens.add({
+          targets: indicator,
+          alpha: 0,
+          duration: ttl - 90,
+          delay: 90,
+          ease: 'Power2.out'
+        });
+      }
+    });
+  }
+
+  public celebrateWave(_waveIndex: number): void {
+    // Crown flash on progress bar
+    this.scene.tweens.add({
+      targets: this.progressBarFill,
+      alpha: { from: 1, to: 0.3 },
+      duration: 180,
+      yoyo: true,
+      ease: 'Power2.out'
+    });
+
+    // Digital confetti
+    const cam = this.scene.cameras.main;
+    const colors = [0xFFF7C2, 0xFFE08A, 0xFFFFFF];
+
+    for (let i = 0; i < 25; i++) {
+      const particle = this.scene.add.graphics().setDepth(10001);
+      const color = colors[i % colors.length];
+      particle.fillStyle(color, 0.8);
+      particle.fillCircle(0, 0, 2);
+
+      const startX = cam.centerX + (Math.random() - 0.5) * 200;
+      const startY = cam.worldView.y + 50;
+      const endX = startX + (Math.random() - 0.5) * 100;
+      const endY = cam.worldView.y + cam.height - 50;
+
+      particle.setPosition(startX, startY);
+
+      this.scene.tweens.add({
+        targets: particle,
+        x: endX,
+        y: endY,
+        alpha: 0,
+        scale: { from: 1, to: 0.5 },
+        duration: 600,
+        delay: Math.random() * 200,
+        ease: 'Power2.out',
+        onComplete: () => particle.destroy()
+      });
+    }
+  }
+
+  public showRipple(_kind: string): void {
+    // Create ripple behind score capsule
+    const cam = this.scene.cameras.main;
+    const rippleX = cam.worldView.x + this.HUD_MARGIN + 100; // Near score capsule
+    const rippleY = cam.worldView.y + this.HUD_MARGIN + 20;
+
+    const ripple = this.scene.add.graphics().setDepth(999);
+    ripple.fillStyle(0xffffff, 0.18);
+    ripple.fillCircle(rippleX, rippleY, 9);
+
+    this.scene.tweens.add({
+      targets: ripple,
+      alpha: 0,
+      scaleX: 1.3,
+      scaleY: 1.3,
+      duration: 140,
+      ease: 'Power2.out',
+      onComplete: () => ripple.destroy()
+    });
+  }
+
   public destroy(): void {
     // Clean up all graphics objects
     this.progressBarTrack.destroy();
@@ -633,13 +834,12 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     this.ammoFill.destroy();
     this.ammoGlow.destroy();
     this.introBg.destroy();
-    this.comboGlow.destroy();
     this.summaryBg.destroy();
+    this.threatIndicators.forEach(indicator => indicator.destroy());
 
     // Clean up text objects
     this.introTitle.destroy();
     this.introSub.destroy();
-    this.comboText.destroy();
     this.summaryTitle.destroy();
     this.summaryStats.destroy();
 
@@ -647,7 +847,6 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     this.scoreCapsule.destroy();
     this.ammoCtr.destroy();
     this.introCard.destroy();
-    this.comboBadge.destroy();
     this.buffContainer.destroy();
     this.summaryCard.destroy();
 

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import "../styles/hud.css";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -27,6 +28,17 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} min-h-dvh bg-[#0E0F12] text-neutral-200 antialiased`}
       >
+        <div className="fixed right-4 top-3 z-50 text-[12px] leading-none text-white/60 font-medium">
+          <span className="mr-1">Designed &amp; crafted by</span>
+          <a
+            href="https://x.com/santiagozamora"
+            target="_blank"
+            rel="noreferrer"
+            className="text-[#3B82F6] hover:underline"
+          >
+            @santiagozamora
+          </a>
+        </div>
         {children}
       </body>
     </html>

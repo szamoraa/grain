@@ -74,13 +74,13 @@ const DEATH_TOTAL_MS = 1000;
 
 // HUD events
 const HUD_INTRO_EVENT = 'hud:intro';
-const HUD_COMBO_EVENT = 'hud:combo';
+// const HUD_COMBO_EVENT = 'hud:combo'; // Removed - combo overlay no longer used
 const HUD_BUFF_EVENT = 'hud:buff';
 const HUD_WAVE_SUMMARY_EVENT = 'hud:waveSummary';
 
 // Wave system constants
 const SHOW_COMPLETE_BANNER_MS = 1200; // brief pause before restart option
-const INTER_WAVE_MS = 1200; // 1.2s quiet gap between waves
+// const INTER_WAVE_MS = 1200; // 1.2s quiet gap between waves - not used in single wave mode
 // Baseline spawn intervals (Wave 1 values)
 const ASTEROID_SPAWN_MIN_MS = 700;
 const ASTEROID_SPAWN_MAX_MS = 1000;
@@ -108,7 +108,7 @@ const SPLIT_COUNT = 3; // number of small asteroids from one big
 const SMALL_SCALE = 0.6; // scale for split asteroids
 
 // Wave bonus
-const WAVE_CLEAR_BONUS = 1000;              // score on wave complete
+// const WAVE_CLEAR_BONUS = 1000;              // score on wave complete - not used in single wave mode
 
 // Edge/safe space removal
 const EDGE_PADDING = 8;                     // tiny margin to avoid clipping UI
@@ -279,15 +279,16 @@ export class SaucerScene extends Phaser.Scene {
     this.startWaveSpawners(spec);
 
     // Show wave intro card
-    const introTitle = `Wave ${i + 1}`;
-    let introSub = '';
+    const _introTitle = `Wave ${i + 1}`;
+    let _introSub = '';
     if (i === 0) {
-      introSub = 'Survive 40s';
+      _introSub = 'Survive 40s';
     } else if (i === 1) {
-      introSub = 'Enemies fire faster (+20%)';
+      _introSub = 'Enemies fire faster (+20%)';
     }
 
-    this.events.emit(HUD_INTRO_EVENT, { title: introTitle, sub: introSub });
+    this.events.emit(HUD_INTRO_EVENT, { title: _introTitle, sub: _introSub });
+    this.events.emit('hud:waveTheme', { waveIndex: i + 1 });
   }
 
   private endWave() {
@@ -315,6 +316,9 @@ export class SaucerScene extends Phaser.Scene {
       accuracy,
       peakCombo: this.peakCombo
     });
+
+    // Emit celebration event
+    this.events.emit('hud:celebrate', { waveIndex: this.currentWaveIndex + 1 });
 
     this.time.delayedCall(1500, () => { // Show summary for 1.5s
       this.inInterWave = false;
@@ -448,9 +452,6 @@ export class SaucerScene extends Phaser.Scene {
 
     // Initialize ammo system
     this.emitAmmoArc();
-
-    // Initialize combo system
-    this.emitCombo();
   }
 
   update(time: number, delta: number): void {
@@ -492,7 +493,6 @@ export class SaucerScene extends Phaser.Scene {
     // Update combo decay
     if (this.comboLevel > 1 && time > this.comboTimerMs) {
       this.comboLevel = 1;
-      this.emitCombo();
     }
 
     // Update power-up timers and emit HUD updates
@@ -716,8 +716,8 @@ export class SaucerScene extends Phaser.Scene {
     this.gameState.invulnerable = true;
     this.gameState.invulnerabilityTime = INVULN_MS;
 
-    // Update HUD lives
-    this.hud.setLives(this.gameState.lives);
+    // Update HUD lives with wobble effect
+    this.hud.setLives(this.gameState.lives, true);
 
     sfx.boom();
     this.updateHUD();
@@ -929,6 +929,9 @@ export class SaucerScene extends Phaser.Scene {
     enemy.sprite.setScale(0.7 * 2.0); // 200% larger
     this.scheduleEnemyFire(enemy.sprite);
     this.enemies.push(enemy);
+
+    // Emit threat indicator if enemy spawns off-screen
+    this.emitThreatIndicator(x, y);
   }
 
   // Schedule enemy fire
@@ -1137,16 +1140,30 @@ export class SaucerScene extends Phaser.Scene {
     }
   }
 
-  // Combo methods
-  private emitCombo() {
-    this.events.emit(HUD_COMBO_EVENT, { level: this.comboLevel });
-  }
-
+  // Combo methods (internal only, no HUD emission)
   private updateComboOnKill() {
     this.comboLevel = Math.min(this.comboLevel + 1, COMBO_MAX);
     this.comboTimerMs = this.time.now + COMBO_WINDOW_MS;
     this.peakCombo = Math.max(this.peakCombo, this.comboLevel);
-    this.emitCombo();
+  }
+
+  // Threat indicator method
+  private emitThreatIndicator(x: number, y: number): void {
+    const cam = this.cameras.main;
+
+    // Determine which side the enemy is spawning from
+    let side: string;
+    if (x < cam.worldView.x + 50) {
+      side = 'left';
+    } else if (x > cam.worldView.x + cam.width - 50) {
+      side = 'right';
+    } else if (y < cam.worldView.y + 50) {
+      side = 'top';
+    } else {
+      return; // Not spawning off-screen
+    }
+
+    this.events.emit('hud:threat', { side, ttl: 900 });
   }
 
   // Power-up methods
@@ -1227,6 +1244,9 @@ export class SaucerScene extends Phaser.Scene {
     // Spawn bullet as you already do
     this.spawnPlayerLaser();
     this.trackShotFired();
+
+    // Emit ripple effect
+    this.events.emit('hud:ripple', { kind: 'laser' });
 
     // Double-shot power-up: spawn second laser
     if (this.isDoubleShot()) {
@@ -1386,7 +1406,7 @@ export class SaucerScene extends Phaser.Scene {
   }
 
   // Idempotent score awarding
-  private awardScore(amount: number, reason: 'asteroid' | 'enemy'): void {
+  private awardScore(amount: number, _reason: 'asteroid' | 'enemy'): void {
     // Apply power-up multipliers first
     let finalAmount = amount;
     if (this.isScore2()) {
@@ -1398,13 +1418,8 @@ export class SaucerScene extends Phaser.Scene {
 
     this.gameState.score += finalAmount;
 
-    // Score pulse effect for large scores
-    if (finalAmount >= 1000) {
-      this.events.emit('hud:scorePulse');
-    }
-
-    // Update HUD score
-    this.hud.setScore(this.gameState.score);
+    // Update HUD score with delta for pulse effect
+    this.hud.setScore(this.gameState.score, finalAmount);
 
     this.events.emit('hud:score', this.gameState.score);
   }
@@ -1427,6 +1442,7 @@ export class SaucerScene extends Phaser.Scene {
 
     ast.destroy(); // remove from scene
     this.createExplosion(ast.x, ast.y);
+    this.events.emit('hud:ripple', { kind: 'explosion' });
     this.gameState.asteroidKills++;
     this.updateComboOnKill();
     this.awardScore(POINT_ASTEROID, 'asteroid');
@@ -1467,6 +1483,7 @@ export class SaucerScene extends Phaser.Scene {
     e.setData('dead', true);
     e.destroy(); // remove from scene
     this.createExplosion(e.x, e.y);
+    this.events.emit('hud:ripple', { kind: 'explosion' });
     this.gameState.enemyKills++;
     this.trackShotHit(); // Track successful hits for accuracy
     this.updateComboOnKill();

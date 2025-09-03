@@ -24,8 +24,7 @@ export default function SaucerGamePage() {
       <div className="mx-auto max-w-[1800px] px-6 py-10">
         {/* Left-aligned header matching game frame */}
         <header className="mb-6 max-w-[1243px] mx-auto px-0">
-          <h1 className="text-sm font-semibold tracking-tight text-white/90">ASTRO</h1>
-          <p className="text-xs text-white/45 mt-1">Built with Phaser 3 — with love, Santiago</p>
+          <h1 className="text-sm font-semibold tracking-tight text-white/90 astro-ui">ASTRO</h1>
         </header>
 
         <GameCanvas

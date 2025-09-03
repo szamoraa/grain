@@ -1,0 +1,40 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@300;400;500;600;700;800;900&display=swap');
+
+@font-face {
+  font-family: 'AstroUI';
+  src: url('https://fonts.googleapis.com/css2?family=Orbitron:wght@300;400;500;600;700;800;900&display=swap');
+  font-weight: 300 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --astro-font: 'Orbitron', ui-sans-serif, system-ui, -apple-system;
+}
+
+.astro-ui {
+  font-family: var(--astro-font);
+  letter-spacing: .02em;
+}
+
+.shimmer:after {
+  content:'';
+  position:absolute; inset:0;
+  background: linear-gradient(115deg, transparent 40%, rgba(255,255,255,.35) 50%, transparent 60%);
+  background-size: 400% 100%;
+  animation: astro-shimmer 1.8s linear infinite;
+  pointer-events:none;
+  border-radius: inherit;
+}
+
+@keyframes astro-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.hud-ripple {
+  position:absolute; inset:0; margin:auto;
+  width:18px; height:18px; border-radius:9999px;
+  background: radial-gradient(closest-side, rgba(255,255,255,.18), rgba(255,255,255,0));
+  pointer-events:none;
+}
