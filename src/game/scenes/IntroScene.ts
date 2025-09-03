@@ -25,6 +25,7 @@ export class IntroScene extends Phaser.Scene {
   }
 
   create(): void {
+    console.log("🎬 IntroScene started"); // Debug: Confirm intro scene runs
     this.isPlaying = true;
     this.isSkipped = false;
 
@@ -43,6 +44,7 @@ export class IntroScene extends Phaser.Scene {
     // Setup input for skipping
     this.setupSkipInput();
 
+    console.log("▶️ Starting intro sequence");
     // Start the sequence
     this.startSequence();
   }
@@ -240,6 +242,7 @@ export class IntroScene extends Phaser.Scene {
   private transitionToGame(): void {
     if (!this.isPlaying) return;
 
+    console.log("🔄 Transitioning from IntroScene to SaucerScene"); // Debug: Confirm transition
     this.isPlaying = false;
 
     // Clean up

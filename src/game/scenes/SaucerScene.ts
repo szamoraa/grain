@@ -450,19 +450,23 @@ export class SaucerScene extends Phaser.Scene {
   }
 
   create(): void {
+    console.log("✅ SaucerScene started"); // Debug: Confirm scene runs
+
     // Initialize meta loop system
     this.gameEvents = new GameEventEmitter(this);
     this.highScore = getHighScore();
-    this.hud.setBest(this.highScore);
 
     // Gate gameplay until intro completes (if enabled)
     if (INTRO.enabled && !this.fromIntro) {
+      console.log("⏸️ Gated: waiting for intro completion");
       // Show loading state or minimal setup
       this.initializeBackground();
       this.initializePlayer();
       this.setupInput();
       return;
     }
+
+    console.log("🚀 Starting full gameplay initialization");
 
     // Initialize game systems
     this.initializeBackground();
@@ -477,7 +481,7 @@ export class SaucerScene extends Phaser.Scene {
     });
     this.physics.add.overlap(this.player.sprite, this.powerups, this.onPickup, undefined, this);
 
-    // Initialize HUD
+    // Initialize HUD FIRST (before calling methods on it)
     this.hud = new HUDLayer(this);
     this.hud.setLives(this.gameState.lives);
     this.hud.setScore(this.gameState.score);

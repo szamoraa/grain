@@ -19,6 +19,7 @@ export class BootScene extends Phaser.Scene {
     // Since we're generating textures procedurally, we don't need actual file loading
     // Transition to intro scene if enabled, otherwise menu
     this.time.delayedCall(100, () => {
+      console.log("🏁 BootScene complete, transitioning to:", INTRO.enabled ? 'IntroScene' : 'MenuScene');
       loadingBar.destroy();
       if (INTRO.enabled) {
         this.scene.start('IntroScene');

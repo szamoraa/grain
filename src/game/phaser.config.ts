@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { BootScene } from './scenes/BootScene';
 import { MenuScene } from './scenes/MenuScene';
+import { IntroScene } from './scenes/IntroScene';
 import { SaucerScene } from './scenes/SaucerScene';
 
 // Game configuration for Retro Saucer
@@ -22,7 +23,7 @@ export const createPhaserConfig = (parentElement: string): Phaser.Types.Core.Gam
         debug: false, // Disable physics debug for performance
       },
     },
-    scene: [BootScene, MenuScene, SaucerScene], // Scene loading order
+    scene: [BootScene, MenuScene, IntroScene, SaucerScene], // Scene loading order
     render: {
       pixelArt: false, // Smooth graphics
       antialias: true,
