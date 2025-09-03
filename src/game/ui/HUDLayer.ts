@@ -11,14 +11,14 @@ export class HUDLayer extends Phaser.GameObjects.Container {
   private progressWidth = 280;
   private progressHeight = 6;
 
-  // Ammo HUD
-  private ammoContainer!: Phaser.GameObjects.Container;
+  // Ammo Arc HUD (bottom-left)
+  private ammoCtr!: Phaser.GameObjects.Container;
   private ammoTrack!: Phaser.GameObjects.Graphics;
   private ammoFill!: Phaser.GameObjects.Graphics;
-  private ammoAlert?: Phaser.GameObjects.Image;
-  private ammoRadius = 34;
-  private ammoThickness = 6;
-  private ammoMargin = 20;
+  private ammoGlow!: Phaser.GameObjects.Graphics;
+  private ammoR = 36;             // radius
+  private ammoThick = 7;          // stroke width
+  private ammoMargin = 20;        // from edges
 
   // HUD layout constants
   private readonly HUD_MARGIN = 24;     // increased for breathing room
@@ -44,10 +44,10 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     // Handle resize events
     scene.scale.on('resize', this.layout, this);
 
-    // Listen for ammo updates
+    // Listen for ammo arc updates
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (scene as any).events.on('hud:ammo', (data: {ratio:number; reloading:boolean}) => {
-      this.drawAmmo(data.ratio, data.reloading);
+    (scene as any).events.on('hud:ammoArc', ({ratioUsed, reloading}:{ratioUsed:number; reloading:boolean}) => {
+      this.drawAmmoArc(ratioUsed, reloading);
     });
 
     scene.add.existing(this);
@@ -146,16 +146,13 @@ export class HUDLayer extends Phaser.GameObjects.Container {
 
   private createAmmoArc(): void {
     // Ammo HUD container
-    this.ammoContainer = this.scene.add.container(0, 0).setScrollFactor(0).setDepth(10000);
+    this.ammoCtr = this.scene.add.container(0, 0).setScrollFactor(0).setDepth(10000);
     this.ammoTrack = this.scene.add.graphics();
     this.ammoFill = this.scene.add.graphics();
-    this.ammoContainer.add([this.ammoTrack, this.ammoFill]);
+    this.ammoGlow = this.scene.add.graphics();
+    this.ammoCtr.add([this.ammoGlow, this.ammoTrack, this.ammoFill]);
 
-    // Optional alert texture (BootScene will generate 'hud_alert')
-    this.ammoAlert = this.scene.add.image(0, 0, 'hud_alert').setAlpha(0).setScale(0.75);
-    this.ammoContainer.add(this.ammoAlert);
-
-    this.add(this.ammoContainer);
+    this.add(this.ammoCtr);
   }
 
   public setLives(lives: number): void {
@@ -202,9 +199,9 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     this.progressBarTrack.strokeRoundedRect(trackX, trackY, this.progressWidth, this.progressHeight, 3);
 
     // Position ammo arc at bottom-left
-    const ammoX = cam.worldView.x + this.ammoMargin + this.ammoRadius;
-    const ammoY = cam.worldView.y + cam.height - this.ammoMargin - this.ammoRadius;
-    this.ammoContainer.setPosition(ammoX, ammoY);
+    const ammoX = cam.worldView.x + this.ammoMargin + this.ammoR;
+    const ammoY = cam.worldView.y + cam.height - this.ammoMargin - this.ammoR;
+    this.ammoCtr.setPosition(ammoX, ammoY);
   }
 
   public drawProgress(progress: number): void {
@@ -238,75 +235,45 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     this.progressBarGlow.alpha = pulseAlpha;
   }
 
-  private drawAmmo(ratio: number, reloading: boolean): void {
-    this.ammoTrack.clear();
-    this.ammoFill.clear();
+  private drawAmmoArc(ratioUsed: number, reloading: boolean): void {
+    // Track (full circle, faint steel)
+    this.drawArc(this.ammoTrack, this.ammoR, this.ammoThick, 0, Math.PI*2, 0xD7DEE7, 0.18);
 
-    // Track (full circle, faint)
-    this.drawRing(this.ammoTrack, this.ammoRadius, this.ammoThickness, 0, Math.PI*2, 0xDDE6F1, 0.18);
+    // Fill: we want a "bottom arc" that grows with usage.
+    // Start at ~200° and sweep clockwise up to ~340° (bottom smile).
+    const start = Phaser.Math.DegToRad(200);
+    const maxSweep = Phaser.Math.DegToRad(140); // length of the smile arc
+    const end = start + maxSweep * Phaser.Math.Clamp(ratioUsed, 0, 1);
 
-    // Fill (0..ratio clockwise from -90°)
-    const start = -Math.PI/2;
-    const end = start + Math.PI*2*Phaser.Math.Clamp(ratio, 0, 1);
+    // Color ramp: cool → amber → red as it fills
+    let color = 0xE8F4FF; // cool
+    if (ratioUsed > 0.33 && ratioUsed <= 0.66) color = 0xFFB84D; // amber
+    if (ratioUsed > 0.66) color = 0xFF4D4D;                     // red
 
-    // Color state
-    let color = 0xE9F2FF;  // healthy cool white-blue
-    let alpha = 0.95;
-    if (ratio <= 0.2) { color = 0xE74C3C; alpha = 1.0; }      // low → red
-    else if (ratio <= 0.5) { color = 0xF39C12; alpha = 0.95; } // mid → amber
+    // Main stroke
+    this.drawArc(this.ammoFill, this.ammoR, this.ammoThick, start, end, color, 0.95);
 
-    this.drawRing(this.ammoFill, this.ammoRadius, this.ammoThickness, start, end, color, alpha);
+    // Subtle glow trail (slightly larger radius, lower alpha)
+    this.drawArc(this.ammoGlow, this.ammoR + 2, 2, start, end, color, 0.35);
 
-    // Inner ticks (3 wedges) for the "ocular" look
-    const tickR = this.ammoRadius - this.ammoThickness - 6;
-    const tickW = 7;
-    const tickH = 12;
-    const angles = [start, start + (2*Math.PI)/3, start + (4*Math.PI)/3];
-    angles.forEach(a => {
-      const tx = Math.cos(a) * tickR;
-      const ty = Math.sin(a) * tickR;
-      const t = this.scene.add.rectangle(tx, ty, tickW, tickH, 0xDDE6F1, 0.25)
-        .setAngle(Phaser.Math.RadToDeg(a) + 90)
-        .setDepth(10001);
-      this.ammoContainer.add(t);
-      this.scene.tweens.add({
-        targets: t,
-        alpha: { from: 0.25, to: 0.5 },
-        duration: 900,
-        yoyo: true,
-        repeat: 0,
-        onComplete: () => t.destroy()
-      });
-    });
-
-    // Alert pulse when reloading or empty
-    if (reloading || ratio === 0) {
+    // Reload pulse: quick alpha shimmer when reloading or just emptied
+    if (reloading || ratioUsed >= 1) {
       this.scene.tweens.add({
         targets: this.ammoFill,
-        alpha: { from: 1, to: 0.4 },
-        duration: 220,
+        alpha: { from: 1.0, to: 0.6 },
+        duration: 180,
         yoyo: true,
         repeat: 1,
         ease: 'sine.inOut'
       });
-      // Show center alert glyph
-      this.ammoAlert?.setAlpha(0.9);
-      this.scene.tweens.add({
-        targets: this.ammoAlert,
-        alpha: { from: 0.9, to: 0.5 },
-        duration: 400,
-        yoyo: true,
-        repeat: 1
-      });
-    } else {
-      this.ammoAlert?.setAlpha(0);
     }
   }
 
-  private drawRing(g: Phaser.GameObjects.Graphics, radius: number, thickness: number, start: number, end: number, color: number, alpha: number): void {
+  private drawArc(g: Phaser.GameObjects.Graphics, r: number, thick: number, start: number, end: number, color: number, alpha: number): void {
+    g.clear();
+    g.lineStyle(thick, color, alpha);
     g.beginPath();
-    g.lineStyle(thickness, color, alpha);
-    g.arc(0, 0, radius, start, end, false);
+    g.arc(0, 0, r, start, end, false);
     g.strokePath();
   }
 
@@ -318,13 +285,11 @@ export class HUDLayer extends Phaser.GameObjects.Container {
     this.scoreBg.destroy();
     this.ammoTrack.destroy();
     this.ammoFill.destroy();
+    this.ammoGlow.destroy();
 
     // Clean up containers
     this.scoreCapsule.destroy();
-    this.ammoContainer.destroy();
-
-    // Clean up optional alert
-    this.ammoAlert?.destroy();
+    this.ammoCtr.destroy();
 
     // Clean up life icons
     this.livesIcons.forEach(icon => icon.destroy());
